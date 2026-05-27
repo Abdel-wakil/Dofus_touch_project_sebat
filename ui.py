@@ -27,6 +27,14 @@ ROOT          = Path(__file__).resolve().parent
 SETTINGS_PATH = ROOT / "settings.json"
 RESOURCES_DIR = ROOT / "resources"
 
+# Preview coordinate mapping — must match the crop in _update_map_preview
+_CROP        = (280, 130, 1960, 1280)           # (x1, y1, x2, y2) full-screen pixels
+_CROP_W      = _CROP[2] - _CROP[0]              # 1680
+_CROP_H      = _CROP[3] - _CROP[1]              # 1150
+_scale       = min(640 / _CROP_W, 360 / _CROP_H)
+_THUMB_W     = round(_CROP_W * _scale)           # 526
+_THUMB_H     = round(_CROP_H * _scale)           # 360
+
 # Use venv python if available, otherwise fall back to current interpreter
 _venv_python = ROOT / "venv" / "Scripts" / "python.exe"
 PYTHON = str(_venv_python) if _venv_python.exists() else sys.executable
@@ -101,6 +109,10 @@ class BotUI:
         self._position     = tk.StringVar(value="—")
         self._progress_txt = tk.StringVar(value=self._progress_label())
         self._timing_var   = tk.DoubleVar(value=s["timing"]["harvest_wait_seconds"])
+
+        self._current_map_xy  = None   # (x, y) of map currently shown in preview
+        self._draw_start      = None   # canvas coords where drag started
+        self._draw_rect_id    = None   # canvas rectangle item id
 
         self._build()
         self._refresh_progress()
@@ -212,14 +224,19 @@ class BotUI:
 
         # ── Map preview ───────────────────────────────────────────────────────
         if _PIL_AVAILABLE:
-            pf = ttk.LabelFrame(self.root, text="Map preview", padding=(P, 4))
+            pf = ttk.LabelFrame(self.root, text="Map preview  —  drag to add a spot", padding=(P, 4))
             pf.pack(fill="x", padx=P, pady=(0, 4))
-            self._preview_label = tk.Label(pf, text="No map loaded", fg="#888888",
-                                           bg="#1e1e1e", anchor="center")
-            self._preview_label.pack(fill="x")
-            self._preview_image = None  # keep reference to avoid GC
+            self._canvas = tk.Canvas(pf, width=_THUMB_W, height=_THUMB_H,
+                                     bg="#1e1e1e", cursor="crosshair", highlightthickness=0)
+            self._canvas.pack()
+            self._canvas.create_text(_THUMB_W // 2, _THUMB_H // 2,
+                                     text="No map loaded", fill="#888888", tags="placeholder")
+            self._canvas.bind("<ButtonPress-1>",   self._on_preview_press)
+            self._canvas.bind("<B1-Motion>",       self._on_preview_drag)
+            self._canvas.bind("<ButtonRelease-1>", self._on_preview_release)
+            self._preview_image = None
         else:
-            self._preview_label = None
+            self._canvas = None
 
         # ── Log ───────────────────────────────────────────────────────────────
         lf = ttk.LabelFrame(self.root, text="Log", padding=(P, 4))
@@ -427,26 +444,108 @@ class BotUI:
         self._log.config(state="disabled")
 
     def _update_map_preview(self, x, y):
-        if not _PIL_AVAILABLE or self._preview_label is None:
+        self._current_map_xy = (x, y)
+        if not _PIL_AVAILABLE or self._canvas is None:
             return
         path = ROOT / "screenshots" / "scout" / "detection" / f"{x}_{y}.png"
+        self._canvas.delete("all")
         if not path.exists():
-            self._preview_label.config(image="", text=f"No scan for ({x}, {y})",
-                                       fg="#888888")
+            self._canvas.create_text(_THUMB_W // 2, _THUMB_H // 2,
+                                     text=f"No scan for ({x}, {y})", fill="#888888")
             self._preview_image = None
             return
         try:
             img = Image.open(path)
-            # Crop to game area only — fixed pixel coordinates
-            img = img.crop((280, 130, 1960, 1280))
-            img.thumbnail((640, 360), Image.LANCZOS)
+            img = img.crop(_CROP)
+            img.thumbnail((_THUMB_W, _THUMB_H), Image.LANCZOS)
             photo = ImageTk.PhotoImage(img)
-            self._preview_image = photo  # prevent GC
-            self._preview_label.config(image=photo, text="")
+            self._preview_image = photo
+            self._canvas.create_image(0, 0, anchor="nw", image=photo, tags="bg")
+            # Draw any already-saved spots as green dots
+            self._draw_existing_spots(x, y)
         except Exception as e:
-            self._preview_label.config(image="", text=f"Preview error: {e}",
-                                       fg="#e57373")
+            self._canvas.create_text(_THUMB_W // 2, _THUMB_H // 2,
+                                     text=f"Preview error: {e}", fill="#e57373")
             self._preview_image = None
+
+
+    # ── Manual spot drawing ────────────────────────────────────────────────────
+
+    def _on_preview_press(self, event):
+        self._draw_start = (event.x, event.y)
+        if self._draw_rect_id:
+            self._canvas.delete(self._draw_rect_id)
+            self._draw_rect_id = None
+
+    def _on_preview_drag(self, event):
+        if self._draw_start is None:
+            return
+        if self._draw_rect_id:
+            self._canvas.delete(self._draw_rect_id)
+        x0, y0 = self._draw_start
+        self._draw_rect_id = self._canvas.create_rectangle(
+            x0, y0, event.x, event.y, outline="#00ff00", width=2
+        )
+
+    def _on_preview_release(self, event):
+        if self._draw_start is None:
+            return
+        x0, y0 = self._draw_start
+        x1, y1 = event.x, event.y
+        self._draw_start = None
+        if abs(x1 - x0) < 4 or abs(y1 - y0) < 4:
+            return  # too small — likely accidental click
+        cx = (x0 + x1) / 2
+        cy = (y0 + y1) / 2
+        screen_x = round(_CROP[0] + cx * (_CROP_W / _THUMB_W))
+        screen_y = round(_CROP[1] + cy * (_CROP_H / _THUMB_H))
+        self._save_manual_spot(screen_x, screen_y)
+
+    def _save_manual_spot(self, screen_x, screen_y):
+        if self._current_map_xy is None:
+            self._log_line("[UI] No map position known — navigate to a map first.", "err")
+            return
+        mx, my = self._current_map_xy
+        path = _resource_path(self._resource.get())
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for m in data["maps"]:
+                if m["x"] == mx and m["y"] == my:
+                    m.setdefault("spots", []).append([screen_x, screen_y])
+                    break
+            else:
+                self._log_line(f"[UI] Map ({mx}, {my}) not in {path.name}", "err")
+                return
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            self._log_line(
+                f"[UI] Spot added at ({screen_x}, {screen_y}) on map ({mx}, {my})", "scout"
+            )
+            self._refresh_progress()
+            # Redraw dots so the new spot shows immediately
+            self._draw_existing_spots(mx, my)
+        except Exception as e:
+            self._log_line(f"[UI] Error saving spot: {e}", "err")
+
+    def _draw_existing_spots(self, x, y):
+        path = _resource_path(self._resource.get())
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for m in data["maps"]:
+                if m["x"] == x and m["y"] == y:
+                    for sx, sy in m.get("spots") or []:
+                        cx = (sx - _CROP[0]) * (_THUMB_W / _CROP_W)
+                        cy = (sy - _CROP[1]) * (_THUMB_H / _CROP_H)
+                        r = 5
+                        self._canvas.create_oval(
+                            cx - r, cy - r, cx + r, cy + r,
+                            fill="#00ff00", outline="#007700"
+                        )
+                    break
+        except Exception:
+            pass
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
