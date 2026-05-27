@@ -58,17 +58,18 @@ _OCR_CONFIG = "--psm 7 -c tessedit_char_whitelist=0123456789-,."
 def _has_leading_minus(inverted: np.ndarray) -> bool:
     """
     Pixel-level check: is there a minus sign in the left margin of the padded image?
-    After padding with 20px left, the minus sign (if present) sits at roughly x=5-40.
-    We look for a horizontal dark band in the vertical middle of that strip.
+    The minus sign is a thin horizontal bar, so we check if any single row in the
+    left strip has a high density of dark pixels (≥35% of the strip width).
     """
     h, w = inverted.shape
-    x1, x2 = 5, min(42, w // 4)
-    y1, y2 = int(h * 0.30), int(h * 0.70)
+    x1, x2 = 5, min(90, w // 3)        # wide enough to cover the full minus stroke
+    y1, y2 = int(h * 0.25), int(h * 0.75)
     region = inverted[y1:y2, x1:x2]
     if region.size == 0:
         return False
-    dark_ratio = float(np.sum(region < 128)) / region.size
-    return dark_ratio > 0.12
+    row_dark = np.sum(region < 128, axis=1)   # dark pixels per row
+    strip_w  = x2 - x1
+    return bool(np.max(row_dark) / strip_w > 0.35)
 
 
 def read_current_position() -> Optional[Tuple[int, int]]:
