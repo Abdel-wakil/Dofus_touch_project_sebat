@@ -584,12 +584,20 @@ class BotUI:
                         try:
                             import input as _bot
                             from config.loader import get_timing
+                            from farm import nav_arrow_visible
                             timing = get_timing()
+                            clicked = 0
                             for sx, sy in avail:
                                 _bot.click(sx, sy); _t.sleep(0.1)
+                                clicked += 1
+                                if nav_arrow_visible():
+                                    self.root.after(0, self._log_line,
+                                                    f"[Loop] Green arrow — stopping at {clicked}/{len(avail)} clicks.",
+                                                    "nav")
+                                    break
                             _t.sleep(timing["harvest_wait_seconds"])
                             self.root.after(0, self._log_line,
-                                            f"[Loop] {pos} — {len(avail)} harvested.",
+                                            f"[Loop] {pos} — {clicked} harvested.",
                                             "farm")
                         except Exception as e:
                             self.root.after(0, self._log_line,

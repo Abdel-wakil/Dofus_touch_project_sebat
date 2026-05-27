@@ -223,6 +223,21 @@ def check_spots_available(spots, return_mask=False):
 
 # ── Harvest ───────────────────────────────────────────────────────────────────
 
+# Bright lime-green navigation arrow that appears when a map-exit is triggered.
+_ARROW_HSV_LO = np.array([50, 160, 160])
+_ARROW_HSV_HI = np.array([90, 255, 255])
+_ARROW_MIN_PX = 500   # minimum green pixels to confirm arrow is visible
+
+
+def nav_arrow_visible():
+    """Return True if the green map-exit arrow is currently on screen."""
+    with mss.mss() as sct:
+        raw = sct.grab(sct.monitors[1])
+    hsv  = cv2.cvtColor(np.array(raw), cv2.COLOR_BGRA2HSV)
+    mask = cv2.inRange(hsv, _ARROW_HSV_LO, _ARROW_HSV_HI)
+    return int(np.sum(mask > 0)) >= _ARROW_MIN_PX
+
+
 def farm_current_map(pos=None, spots=None):
     """Check which spots are available and click them. Returns number harvested."""
     timing = get_timing()
@@ -235,12 +250,17 @@ def farm_current_map(pos=None, spots=None):
         print(f"[Farm] {pos}: all {len(spots)} spot(s) are stumps, skipping")
         return 0
     print(f"[Farm] {pos}: {len(available)}/{len(spots)} available — clicking")
+    clicked = 0
     for cx, cy in available:
         bot_input.click(cx, cy)
         time.sleep(0.1)
+        clicked += 1
+        if nav_arrow_visible():
+            print(f"[Farm] Green arrow detected after {clicked} click(s) — stopping early")
+            break
     print(f"[Farm] Waiting {timing['harvest_wait_seconds']}s...")
     time.sleep(timing["harvest_wait_seconds"])
-    return len(available)
+    return clicked
 
 
 def _load_db_and_spots():
