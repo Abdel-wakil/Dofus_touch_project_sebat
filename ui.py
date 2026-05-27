@@ -165,11 +165,16 @@ class BotUI:
         ttk.Entry(sp_frame, textvariable=self._start_x, width=5).pack(side="left", padx=(2, 8))
         tk.Label(sp_frame, text="Y").pack(side="left")
         ttk.Entry(sp_frame, textvariable=self._start_y, width=5).pack(side="left", padx=2)
+        tk.Button(sp_frame, text="⌖ Use OCR", width=9,
+                  bg="#1565c0", fg="white", relief="flat",
+                  font=("Segoe UI", 8, "bold"), cursor="hand2",
+                  command=self._use_ocr_as_start
+                  ).pack(side="left", padx=(20, 4))
         tk.Button(sp_frame, text="✕ Clear", width=7,
                   bg="#c0392b", fg="white", relief="flat",
                   font=("Segoe UI", 8, "bold"), cursor="hand2",
                   command=lambda: (self._start_x.set(""), self._start_y.set(""))
-                  ).pack(side="left", padx=(20, 4))
+                  ).pack(side="left", padx=(4, 4))
         tk.Label(sp_frame, text="(leave blank to use OCR)", fg="#888888",
                  font=("Segoe UI", 9)).pack(side="left", padx=(0, 0))
 
@@ -313,6 +318,7 @@ class BotUI:
             self._log_line("[UI] Enter X and Y position before scanning.")
             return
         self._log_line(f"[UI] Scanning map ({sx}, {sy})...")
+        self._last_scan_pos = (int(sx), int(sy))
         cmd = [PYTHON, "-u", str(ROOT / "scan_map.py"), f"--pos={sx},{sy}"]
         proc = subprocess.Popen(
             cmd,
@@ -323,6 +329,26 @@ class BotUI:
             cwd=str(ROOT),
         )
         threading.Thread(target=self._read_scan_output, args=(proc,), daemon=True).start()
+
+    def _use_ocr_as_start(self):
+        self._log_line("[OCR] Reading position for start...")
+        def _do():
+            try:
+                import sys, os
+                sys.path.insert(0, str(ROOT))
+                os.chdir(ROOT)
+                from vision import read_current_position
+                pos = read_current_position()
+                if pos:
+                    self.root.after(0, self._start_x.set, str(pos[0]))
+                    self.root.after(0, self._start_y.set, str(pos[1]))
+                    self.root.after(0, self._log_line,
+                                   f"[OCR] Start position set to ({pos[0]}, {pos[1]})", "pos")
+                else:
+                    self.root.after(0, self._log_line, "[OCR] Failed — no match", "err")
+            except Exception as e:
+                self.root.after(0, self._log_line, f"[OCR] Error: {e}", "err")
+        threading.Thread(target=_do, daemon=True).start()
 
     def _read_ocr(self):
         self._log_line("[OCR] Reading position...")
@@ -346,6 +372,9 @@ class BotUI:
         for line in proc.stdout:
             self.root.after(0, self._handle_line, line.rstrip())
         self.root.after(0, self._refresh_progress)
+        pos = getattr(self, "_last_scan_pos", None)
+        if pos:
+            self.root.after(0, self._update_map_preview, pos[0], pos[1])
 
     def _on_resource_change(self, *_):
         stem = _list_resources().get(self._resource.get(), self._resource.get().lower())

@@ -111,7 +111,7 @@ _regions_cache = get_screen_regions()
 
 N_FRAMES        = 10
 FRAME_INTERVAL  = 0.35   # 10 frames × 0.35 s = 3.5 s total
-DIFF_THRESHOLD  = 25     # per-channel change to count as "blinked"
+DIFF_THRESHOLD  = 20     # per-channel change to count as "blinked"
 MIN_BLINK_COUNT = 4      # pixel must blink in at least N of the 9 pairs
 MIN_BLOB_AREA   = 300
 MAX_BLOB_AREA   = 20000
@@ -228,9 +228,9 @@ def _center(box):
 #     Grass/static noise typically produces 0-2 changed pairs.
 #     Setting min to 4 gives a wide gap between tree (10+) and stump (0-2).
 SPOT_WINDOW          = 20   # tight focus on tree center, reduces grass noise
-SPOT_BLINK_DURATION  = 2.0  # seconds — also serves as the map-settle wait
-SPOT_BLINK_FRAMES    = 12   # 11 consecutive frame pairs @ ~0.167 s each
-SPOT_BLINK_MIN_PAIRS = 4    # out of 11 — trees easily hit 6+, stumps hit 0-2
+SPOT_BLINK_DURATION  = 3.0  # seconds — longer window catches slow/subtle blinks
+SPOT_BLINK_FRAMES    = 18   # 17 consecutive frame pairs @ ~0.167 s each
+SPOT_BLINK_MIN_PAIRS = 4    # out of 17 — trees easily hit 6+, stumps hit 0-2
 
 
 def check_spots_available(spots):
