@@ -163,7 +163,7 @@ SPOT_WIN_Y_BOT = 70    # downward extension from spot center
 SPOT_FRAMES    = 5     # screenshots to take (3 consecutive pairs)
 SPOT_INTERVAL  = 0.3  # seconds between screenshots
 BLINK_DIFF     = 10    # per-pixel brightness change threshold
-MIN_BLINK_PX   = 2000   # blink-event sum per box → plant is available
+MIN_BLINK_PX   = 2500   # blink-event sum per box → plant is available
                        # fire plant ~500-2000+, stump ~0-20
 
 
