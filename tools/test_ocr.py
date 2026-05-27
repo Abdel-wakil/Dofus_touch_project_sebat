@@ -93,6 +93,8 @@ for thresh in [180, 150, 120, 0]:
     binary   = cv2.morphologyEx(binary, cv2.MORPH_OPEN,  open_k)
     inverted = cv2.bitwise_not(binary)
     inverted = cv2.dilate(inverted, minus_k, iterations=1)  # thicken minus sign horizontally
+    inverted = cv2.copyMakeBorder(inverted, 10, 10, 20, 10,
+                                  cv2.BORDER_CONSTANT, value=255)  # pad so edge chars aren't clipped
 
     cv2.imwrite(str(OUT_DIR / f"{label}.png"), inverted)
 

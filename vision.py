@@ -84,6 +84,8 @@ def read_current_position() -> Optional[Tuple[int, int]]:
         binary   = cv2.morphologyEx(binary, cv2.MORPH_OPEN,  open_k)
         inverted = cv2.bitwise_not(binary)
         inverted = cv2.dilate(inverted, minus_k, iterations=1)  # thicken minus sign horizontally
+        inverted = cv2.copyMakeBorder(inverted, 10, 10, 20, 10,
+                                      cv2.BORDER_CONSTANT, value=255)  # pad so edge chars aren't clipped
 
         raw    = pytesseract.image_to_string(inverted, config=_OCR_CONFIG).strip()
         result = _parse_ocr(raw)
