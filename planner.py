@@ -109,6 +109,46 @@ def choose_next(pos, db, prev_pos=None, visited=None):
     return chosen_dir, chosen_pos
 
 
+def snake_route(maps_iterable):
+    """
+    Boustrophedon (lawnmower) traversal order over a set of (x, y) map positions.
+
+    Rows are sorted south-to-north (highest y first, since 'top' = y-1 in Dofus).
+    The first row sweeps right-to-left (west), alternating each row thereafter.
+    Returns an ordered list of (x, y) positions to visit.
+    """
+    rows: dict[int, list[int]] = {}
+    for x, y in maps_iterable:
+        rows.setdefault(y, []).append(x)
+    route: list[tuple[int, int]] = []
+    go_left = True
+    for y in sorted(rows, reverse=True):     # south → north (less-negative y first)
+        xs = sorted(rows[y], reverse=go_left)
+        route.extend((x, y) for x in xs)
+        go_left = not go_left
+    return route
+
+
+def step_toward(current, target, db):
+    """
+    Return one navigation direction (right/left/top/bottom) toward target.
+    Prefers a step that lands on a known DB map; falls back to any direction
+    if no DB neighbour is available (transit through out-of-DB map).
+    """
+    cx, cy = current
+    tx, ty = target
+    candidates: list[str] = []
+    if tx > cx: candidates.append("right")
+    elif tx < cx: candidates.append("left")
+    if ty < cy: candidates.append("top")
+    elif ty > cy: candidates.append("bottom")
+    for d in candidates:
+        ddx, ddy = _DELTAS[d]
+        if (cx + ddx, cy + ddy) in db:
+            return d
+    return candidates[0] if candidates else None
+
+
 def _log(pos, all_moves, scores, chosen_dir, chosen_pos, visited):
     total = sum(scores)
     parts = []

@@ -444,16 +444,16 @@ class BotUI:
 
     def _run_harvest_loop(self):
         """
-        Full map-to-map harvest loop driven from the UI.
-        For each map: check spots -> harvest available -> navigate -> repeat.
-        Mirrors the farm.py main loop but updates the UI preview after each map.
+        Boustrophedon (snake) harvest loop.
+        Pre-computes the full zone traversal order once, then for each map:
+          navigate step-by-step → check spots → click available → next map.
+        Sweeps repeat indefinitely until STOP is pressed.
         """
         self._stop_event = threading.Event()
         self._start_btn.config(state="disabled")
         self._stop_btn.config(state="normal")
         self._set_status("Harvesting", "#ce93d8")
 
-        # Capture start position from fields (may be empty → will OCR)
         sx_str = self._start_x.get().strip()
         sy_str = self._start_y.get().strip()
         manual_start = None
@@ -470,56 +470,96 @@ class BotUI:
             import sys as _sys, os as _os
             _sys.path.insert(0, str(ROOT)); _os.chdir(ROOT)
             from farm import _load_db_and_spots, navigate
-            from planner import choose_next
+            from planner import snake_route, step_toward
 
             _t.sleep(5.0)
-
             if self._stop_event.is_set():
                 self.root.after(0, self._end_harvest_loop)
                 return
 
             db, _ = _load_db_and_spots()
+            route = snake_route(db)
+            self.root.after(0, self._log_line,
+                            f"[Loop] Snake route: {len(route)} maps.", "farm")
 
-            # Determine initial position
+            # Determine starting position
             if manual_start:
-                arrive_done = threading.Event()
-                def _set_manual(p=manual_start):
+                pos = manual_start
+                done = threading.Event()
+                def _set_start(p=pos):
                     self._start_x.set(str(p[0]))
                     self._start_y.set(str(p[1]))
                     self._update_map_preview(p[0], p[1])
                     self._log_line(f"[Loop] Starting at {p}", "pos")
-                    arrive_done.set()
-                self.root.after(0, _set_manual)
-                arrive_done.wait(timeout=5)
+                    done.set()
+                self.root.after(0, _set_start)
+                done.wait(timeout=5)
             else:
-                # OCR to find start position
+                pos = None
                 while not self._stop_event.is_set():
                     ocr_done = threading.Event()
                     self.root.after(0, self._use_ocr_as_start, ocr_done.set)
                     ocr_done.wait(timeout=10)
-                    if self._current_map_xy is not None:
+                    if self._current_map_xy:
+                        pos = self._current_map_xy
                         break
-                    self.root.after(0, self._log_line, "[Loop] OCR failed, retrying in 2s...", "err")
+                    self.root.after(0, self._log_line,
+                                    "[Loop] OCR failed, retrying in 2s...", "err")
                     _t.sleep(2)
 
-            if self._stop_event.is_set() or self._current_map_xy is None:
+            if self._stop_event.is_set() or pos is None:
                 self.root.after(0, self._end_harvest_loop)
                 return
 
-            pos      = self._current_map_xy
-            prev_pos = None
-            visited  = set()
+            # Resume from current position in the route if possible
+            idx   = next((i for i, p in enumerate(route) if p == pos), 0)
+            sweep = 1
 
             while not self._stop_event.is_set():
-                visited.add(pos)
+                target = route[idx]
 
-                if pos not in db:
+                # Navigate to target one step at a time
+                while pos != target and not self._stop_event.is_set():
+                    direction = step_toward(pos, target, db)
+                    if direction is None:
+                        self.root.after(0, self._log_line,
+                                        f"[Loop] No path from {pos} to {target}", "err")
+                        break
+                    ok, nav_ocr = navigate(direction, current_pos=pos)
+                    if ok and nav_ocr:
+                        pos = nav_ocr
+                        nav_done = threading.Event()
+                        def _on_nav(p=pos):
+                            self._start_x.set(str(p[0]))
+                            self._start_y.set(str(p[1]))
+                            self._update_map_preview(p[0], p[1])
+                            self._log_line(f"[Loop] → {p}", "pos")
+                            nav_done.set()
+                        self.root.after(0, _on_nav)
+                        nav_done.wait(timeout=5)
+                    else:
+                        # Nav failed — OCR re-sync
+                        self.root.after(0, self._log_line,
+                                        "[Loop] Nav failed — re-reading position...", "err")
+                        ocr_done2 = threading.Event()
+                        self.root.after(0, self._use_ocr_as_start, ocr_done2.set)
+                        ocr_done2.wait(timeout=10)
+                        if self._current_map_xy:
+                            pos = self._current_map_xy
+                        else:
+                            self.root.after(0, self._log_line,
+                                            "[Loop] OCR re-sync failed — stopping.", "err")
+                            self._stop_event.set()
+                        break
+
+                if self._stop_event.is_set():
+                    break
+
+                if pos != target:
                     self.root.after(0, self._log_line,
-                                    f"[Loop] {pos} not in resource DB — skipping.", "nav")
+                                    f"[Loop] Skipped unreachable {target}", "nav")
                 else:
-                    # Check spots (pre_delay=0: already in game, map is loaded)
-                    self.root.after(0, self._log_line,
-                                    f"[Loop] {pos} — checking spots...", "farm")
+                    # Check spots (no pre-delay — already in game)
                     check_done = threading.Event()
                     self.root.after(0, self._check_current_spots, check_done.set, 0)
                     check_done.wait(timeout=30)
@@ -527,11 +567,12 @@ class BotUI:
                     if self._stop_event.is_set():
                         break
 
-                    # Harvest available spots directly
-                    avail = [(sx, sy) for (sx, sy), ok in self._availability_result.items() if ok]
+                    avail = [(sx, sy) for (sx, sy), ok in
+                             self._availability_result.items() if ok]
                     if avail:
                         self.root.after(0, self._log_line,
-                                        f"[Loop] Clicking {len(avail)} spot(s)...", "farm")
+                                        f"[Loop] {pos} — clicking {len(avail)} spot(s)...",
+                                        "farm")
                         try:
                             import input as _bot
                             from config.loader import get_timing
@@ -540,52 +581,22 @@ class BotUI:
                                 _bot.click(sx, sy); _t.sleep(0.1)
                             _t.sleep(timing["harvest_wait_seconds"])
                             self.root.after(0, self._log_line,
-                                            f"[Loop] {pos} — {len(avail)} harvested.", "farm")
+                                            f"[Loop] {pos} — {len(avail)} harvested.",
+                                            "farm")
                         except Exception as e:
                             self.root.after(0, self._log_line,
                                             f"[Loop] Harvest error: {e}", "err")
                     else:
                         self.root.after(0, self._log_line,
-                                        f"[Loop] {pos} — all stumps, moving on.", "farm")
+                                        f"[Loop] {pos} — all stumps.", "farm")
 
-                if self._stop_event.is_set():
-                    break
-
-                # Choose next map and navigate
-                direction, _ = choose_next(pos, db, prev_pos, visited=visited)
-                if direction is None:
+                idx += 1
+                if idx >= len(route):
+                    idx = 0
                     self.root.after(0, self._log_line,
-                                    "[Loop] All maps visited — loop complete!", "farm")
-                    break
-
-                self.root.after(0, self._log_line, f"[Loop] Navigating {direction}...", "nav")
-                ok, nav_ocr = navigate(direction, current_pos=pos)
-
-                if ok and nav_ocr:
-                    prev_pos = pos
-                    pos      = nav_ocr
-                    arrive_done2 = threading.Event()
-                    def _arrive(p=pos):
-                        self._start_x.set(str(p[0]))
-                        self._start_y.set(str(p[1]))
-                        self._update_map_preview(p[0], p[1])
-                        self._log_line(f"[Loop] Arrived at {p}", "pos")
-                        arrive_done2.set()
-                    self.root.after(0, _arrive)
-                    arrive_done2.wait(timeout=5)
-                else:
-                    # Nav failed — OCR re-sync
-                    self.root.after(0, self._log_line,
-                                    "[Loop] Nav failed — re-reading position...", "err")
-                    ocr_done2 = threading.Event()
-                    self.root.after(0, self._use_ocr_as_start, ocr_done2.set)
-                    ocr_done2.wait(timeout=10)
-                    if self._current_map_xy:
-                        pos = self._current_map_xy
-                    else:
-                        self.root.after(0, self._log_line,
-                                        "[Loop] OCR re-sync failed — stopping.", "err")
-                        break
+                                    f"[Loop] Sweep {sweep} done — starting sweep {sweep + 1}.",
+                                    "farm")
+                    sweep += 1
 
             self.root.after(0, self._end_harvest_loop)
 
