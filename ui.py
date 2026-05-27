@@ -229,6 +229,9 @@ class BotUI:
         ttk.Button(bf, text="⊕  Scan map", command=self._scan_current_map, width=14
                    ).pack(side="left", padx=6)
 
+        ttk.Button(bf, text="⛏  Harvest map", command=self._harvest_current_map, width=14
+                   ).pack(side="left", padx=6)
+
         ttk.Button(bf, text="⌖  Read OCR", command=self._read_ocr, width=14
                    ).pack(side="left", padx=6)
 
@@ -339,6 +342,23 @@ class BotUI:
         self._log_line(f"[UI] Scanning map ({sx}, {sy})...")
         self._last_scan_pos = (int(sx), int(sy))
         cmd = [PYTHON, "-u", str(ROOT / "scan_map.py"), f"--pos={sx},{sy}"]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=str(ROOT),
+        )
+        threading.Thread(target=self._read_scan_output, args=(proc,), daemon=True).start()
+
+    def _harvest_current_map(self):
+        sx, sy = self._start_x.get().strip(), self._start_y.get().strip()
+        if not sx or not sy:
+            self._log_line("[UI] Enter X and Y position before harvesting.")
+            return
+        self._log_line(f"[UI] Harvesting map ({sx}, {sy}) in 3s — switch to game!")
+        cmd = [PYTHON, "-u", str(ROOT / "harvest_map.py"), f"--pos={sx},{sy}"]
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
