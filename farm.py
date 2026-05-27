@@ -38,6 +38,36 @@ import vision
 from planner import snake_route, step_toward, _DELTAS
 
 
+# ── Per-map navigation hints ──────────────────────────────────────────────────
+# Some maps have narrow or partially-blocked edges.
+# Each entry: (map_x, map_y, direction) → (x_frac0, y_frac0, x_frac1, y_frac1)
+# The fractions clip the full edge region to the passable sub-area (0.0–1.0).
+#   x/y_frac0 = start of passable zone, x/y_frac1 = end of passable zone.
+# Examples:
+#   bottom-half of left edge  → (0.0, 0.5, 1.0, 1.0)
+#   left-half of bottom edge  → (0.0, 0.0, 0.5, 1.0)
+NAV_HINTS: dict[tuple, tuple] = {
+    (18, -35, "left"):   (0.0, 0.7, 1.0, 1.0),   # click bottom 30% of left edge
+    (18, -35, "bottom"): (0.0, 0.0, 0.5, 1.0),   # click left half of bottom edge
+}
+
+
+def _hint_region(region, pos, direction):
+    """Clip region to the passable sub-area defined in NAV_HINTS, if any."""
+    if pos is None:
+        return region
+    hint = NAV_HINTS.get((pos[0], pos[1], direction))
+    if hint is None:
+        return region
+    x1, y1, x2, y2 = region
+    xf0, yf0, xf1, yf1 = hint
+    w, h = x2 - x1, y2 - y1
+    return (
+        round(x1 + xf0 * w), round(y1 + yf0 * h),
+        round(x1 + xf1 * w), round(y1 + yf1 * h),
+    )
+
+
 def _segmented_click(region, attempt, max_retries):
     """
     Click in a different segment of the edge region on each retry.
@@ -87,7 +117,7 @@ def navigate(direction, current_pos=None, max_retries=3):
         else:
             print(f"[Nav] Nav retry {attempt}/{max_retries - 1}...")
 
-        _segmented_click(regions[direction], attempt, max_retries)
+        _segmented_click(_hint_region(regions[direction], current_pos, direction), attempt, max_retries)
         vision.wait_for_map_change()
         time.sleep(timing["post_map_change_delay"])
 
@@ -131,9 +161,9 @@ SPOT_WIN_X     = 45    # horizontal pixel radius around each spot center
 SPOT_WIN_Y_TOP = 140   # upward extension from spot center
 SPOT_WIN_Y_BOT = 70    # downward extension from spot center
 SPOT_FRAMES    = 5     # screenshots to take (3 consecutive pairs)
-SPOT_INTERVAL  = 0.40  # seconds between screenshots
+SPOT_INTERVAL  = 0.3  # seconds between screenshots
 BLINK_DIFF     = 10    # per-pixel brightness change threshold
-MIN_BLINK_PX   = 750   # blink-event sum per box → plant is available
+MIN_BLINK_PX   = 2000   # blink-event sum per box → plant is available
                        # fire plant ~500-2000+, stump ~0-20
 
 
