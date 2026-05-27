@@ -72,7 +72,7 @@ print()
 gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
 gray = cv2.resize(gray, (gray.shape[1] * 4, gray.shape[0] * 4),
                   interpolation=cv2.INTER_CUBIC)
-gray = gray[gray.shape[0] // 2:, :]  # drop top half — map name noise bleeds into coord line
+gray = gray[gray.shape[0] // 3:, :]  # drop top third — map name noise bleeds into coord line
 cv2.imwrite(str(OUT_DIR / "gray.png"), gray)
 
 close_k = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
