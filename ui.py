@@ -387,70 +387,54 @@ class BotUI:
             threading.Thread(target=_do_fast, daemon=True).start()
             return
 
-        # Full pipeline: OCR -> locate map -> check spots -> harvest.
-        self._log_line("[Harvest] No check results — running full pipeline in 3s, switch to game!", "farm")
+        # Full pipeline: OCR -> check spots -> harvest, same as clicking each button.
+        self._log_line("[Harvest] Starting in 3s — switch to game!", "farm")
 
         def _do_full():
-            import time as _t, json as _json
+            import time as _t
             _t.sleep(3.0)
+
+            # Step 1: Use OCR as start (same as button).
+            ocr_done = threading.Event()
+            self.root.after(0, self._use_ocr_as_start, ocr_done.set)
+            if not ocr_done.wait(timeout=10) or self._current_map_xy is None:
+                self.root.after(0, self._log_line, "[Harvest] OCR failed.", "err")
+                return
+
+            # Step 2: Check spots (same as button, no pre-delay — already in game).
+            check_done = threading.Event()
+            self.root.after(0, self._check_current_spots, check_done.set, 0)
+            if not check_done.wait(timeout=30):
+                self.root.after(0, self._log_line, "[Harvest] Check spots timed out.", "err")
+                return
+
+            # Step 3: Harvest available spots.
+            avail_spots = [(sx, sy) for (sx, sy), ok in self._availability_result.items() if ok]
+            mx, my = self._current_map_xy
+            if not avail_spots:
+                self.root.after(0, self._log_line,
+                                f"[Harvest] ({mx},{my}) — all stumps, nothing to harvest.", "farm")
+                return
+
+            self.root.after(0, self._log_line,
+                            f"[Harvest] Clicking {len(avail_spots)} spot(s)...", "farm")
             try:
                 import sys as _sys, os as _os
                 _sys.path.insert(0, str(ROOT)); _os.chdir(ROOT)
-                from vision import read_current_position
-                from farm import check_spots_available
                 import input as _bot
-                from config.loader import get_timing, get_resource_path
-
-                # 1. OCR
-                pos = read_current_position()
-                if pos is None:
-                    self.root.after(0, self._log_line, "[Harvest] OCR failed — could not read position.", "err")
-                    return
-                mx, my = pos
-                self.root.after(0, self._log_line, f"[Harvest] OCR -> ({mx},{my})", "pos")
-                self.root.after(0, self._start_x.set, str(mx))
-                self.root.after(0, self._start_y.set, str(my))
-                self.root.after(0, self._update_map_preview, mx, my)
-
-                # 2. Load spots for this map
-                with open(get_resource_path(), encoding="utf-8") as f:
-                    data = _json.load(f)
-                spots = next(
-                    (m.get("spots") or [] for m in data["maps"] if m["x"] == mx and m["y"] == my),
-                    []
-                )
-                if not spots:
-                    self.root.after(0, self._log_line, f"[Harvest] ({mx},{my}) — no spots defined.", "err")
-                    return
-                self.root.after(0, self._log_line,
-                                f"[Harvest] Checking {len(spots)} spot(s) on ({mx},{my})...", "farm")
-
-                # 3. Check spots
-                available = check_spots_available(spots)
-                results = {tuple(s): tuple(s) in {tuple(a) for a in available} for s in spots}
-                self.root.after(0, setattr, self, "_availability_result", results)
-                self.root.after(0, self._update_map_preview, mx, my, True)
-
-                if not available:
-                    self.root.after(0, self._log_line,
-                                    f"[Harvest] ({mx},{my}) — all stumps, nothing to harvest.", "farm")
-                    return
-                self.root.after(0, self._log_line,
-                                f"[Harvest] {len(available)}/{len(spots)} available — clicking...", "farm")
-
-                # 4. Harvest
+                from config.loader import get_timing
                 timing = get_timing()
-                for sx, sy in available:
+                for sx, sy in avail_spots:
                     _bot.click(sx, sy); _t.sleep(0.1)
                 _t.sleep(timing["harvest_wait_seconds"])
                 self.root.after(0, self._log_line,
-                                f"[Harvest] Done — {len(available)} resource(s) clicked.", "farm")
+                                f"[Harvest] Done — {len(avail_spots)} resource(s) clicked.", "farm")
             except Exception as e:
                 self.root.after(0, self._log_line, f"[Harvest] Error: {e}", "err")
 
         threading.Thread(target=_do_full, daemon=True).start()
 
-    def _use_ocr_as_start(self):
+    def _use_ocr_as_start(self, _callback=None):
         self._log_line("[OCR] Reading position for start...")
         def _do():
             try:
@@ -460,14 +444,26 @@ class BotUI:
                 from vision import read_current_position
                 pos = read_current_position()
                 if pos:
-                    self.root.after(0, self._start_x.set, str(pos[0]))
-                    self.root.after(0, self._start_y.set, str(pos[1]))
-                    self.root.after(0, self._log_line,
-                                   f"[OCR] Start position set to ({pos[0]}, {pos[1]})", "pos")
+                    def _apply():
+                        self._start_x.set(str(pos[0]))
+                        self._start_y.set(str(pos[1]))
+                        self._log_line(f"[OCR] Start position set to ({pos[0]}, {pos[1]})", "pos")
+                        self._update_map_preview(pos[0], pos[1])
+                        if _callback:
+                            _callback()
+                    self.root.after(0, _apply)
                 else:
-                    self.root.after(0, self._log_line, "[OCR] Failed — no match", "err")
+                    def _fail():
+                        self._log_line("[OCR] Failed — no match", "err")
+                        if _callback:
+                            _callback()
+                    self.root.after(0, _fail)
             except Exception as e:
-                self.root.after(0, self._log_line, f"[OCR] Error: {e}", "err")
+                def _err():
+                    self._log_line(f"[OCR] Error: {e}", "err")
+                    if _callback:
+                        _callback()
+                self.root.after(0, _err)
         threading.Thread(target=_do, daemon=True).start()
 
     def _read_ocr(self):
@@ -488,9 +484,11 @@ class BotUI:
                 self.root.after(0, self._log_line, f"[OCR] Error: {e}", "err")
         threading.Thread(target=_do, daemon=True).start()
 
-    def _check_current_spots(self):
+    def _check_current_spots(self, _callback=None, pre_delay=1.5):
         if self._current_map_xy is None:
             self._log_line("[Check] No map loaded -- enter X/Y first.", "err")
+            if _callback:
+                _callback()
             return
         mx, my = self._current_map_xy
         path = _resource_path(self._resource.get())
@@ -516,7 +514,7 @@ class BotUI:
 
         def _do():
             import time as _time
-            _time.sleep(1.5)
+            _time.sleep(pre_delay)
             try:
                 import sys as _sys, os as _os
                 _sys.path.insert(0, str(ROOT))
@@ -570,9 +568,13 @@ class BotUI:
                     )
                     if self._current_map_xy == (mx, my):
                         self._update_map_preview(mx, my, keep_availability=True)
+                    if _callback:
+                        _callback()
                 self.root.after(0, _update)
             except Exception as e:
                 self.root.after(0, self._log_line, f"[Check] Error: {e}", "err")
+                if _callback:
+                    self.root.after(0, _callback)
 
         threading.Thread(target=_do, daemon=True).start()
 

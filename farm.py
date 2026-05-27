@@ -253,8 +253,8 @@ SPOT_WIN_Y_TOP = 120   # upward extension from spot center — increase to captu
 SPOT_WIN_Y_BOT = 70   # downward extension from spot center
 SPOT_FRAMES    = 4    # screenshots to take (3 consecutive pairs)
 SPOT_INTERVAL  = 0.40 # seconds between screenshots (~1.2s total)
-BLINK_DIFF     = 20   # per-pixel brightness change threshold (raise to ignore compression noise)
-MIN_BLINK_PX   = 800  # sum of blink events in box -> plant is available
+BLINK_DIFF     = 15   # per-pixel brightness change threshold (raise to ignore compression noise)
+MIN_BLINK_PX   = 750  # sum of blink events in box -> plant is available
                       # each pixel scores 0-3 (one per pair it changed in)
                       # fire plant typically 500-2000+, stump 0-20
 
