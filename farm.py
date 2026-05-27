@@ -242,7 +242,7 @@ def detect_spots_adaptive(expected=None):
         label    = "standard" if tier == 0 else f"tier-{tier}"
         exp_str  = f"/{expected}" if expected is not None else ""
         print(f"[Detect] {label}: {n} frames / {duration:.0f}s  "
-              f"diff≥{diff_thresh}  min_pairs={min_pairs}")
+              f"diff>={diff_thresh}  min_pairs={min_pairs}")
 
         frames = capture_frames(n=n, interval=interval)
         zones  = blink_detect(frames, diff_threshold=diff_thresh, min_blink_count=min_pairs)

@@ -113,6 +113,7 @@ class BotUI:
         self._current_map_xy  = None   # (x, y) of map currently shown in preview
         self._draw_start      = None   # canvas coords where drag started
         self._draw_rect_id    = None   # canvas rectangle item id
+        self._selected_spot   = None   # (screen_x, screen_y) of selected spot
 
         self._build()
         self._refresh_progress()
@@ -229,7 +230,9 @@ class BotUI:
 
         # ── Map preview ───────────────────────────────────────────────────────
         if _PIL_AVAILABLE:
-            pf = ttk.LabelFrame(self.root, text="Map preview  —  drag to add a spot", padding=(P, 4))
+            pf = ttk.LabelFrame(self.root,
+                                text="Map preview  —  drag to add  |  click spot + Delete to remove",
+                                padding=(P, 4))
             pf.pack(fill="x", padx=P, pady=(0, 4))
             self._canvas = tk.Canvas(pf, width=_THUMB_W, height=_THUMB_H,
                                      bg="#1e1e1e", cursor="crosshair", highlightthickness=0)
@@ -239,6 +242,8 @@ class BotUI:
             self._canvas.bind("<ButtonPress-1>",   self._on_preview_press)
             self._canvas.bind("<B1-Motion>",       self._on_preview_drag)
             self._canvas.bind("<ButtonRelease-1>", self._on_preview_release)
+            self._canvas.bind("<Delete>",          self._on_delete_spot)
+            self._canvas.bind("<BackSpace>",       self._on_delete_spot)
             self._preview_image = None
         else:
             self._canvas = None
@@ -499,9 +504,22 @@ class BotUI:
             self._preview_image = None
 
 
-    # ── Manual spot drawing ────────────────────────────────────────────────────
+    # ── Manual spot drawing / selection / deletion ────────────────────────────
+
+    _SPOT_R      = 7    # dot radius in canvas pixels
+    _SELECT_DIST = 14   # click within this many canvas pixels to select a spot
 
     def _on_preview_press(self, event):
+        self._canvas.focus_set()   # so Delete key reaches the canvas
+        # Check if clicking near an existing spot (select it)
+        hit = self._spot_at(event.x, event.y)
+        if hit is not None:
+            self._selected_spot = hit
+            self._draw_existing_spots(*self._current_map_xy)
+            self._draw_start = None  # don't start a drag
+            return
+        # Otherwise deselect and start a drag-to-add
+        self._selected_spot = None
         self._draw_start = (event.x, event.y)
         if self._draw_rect_id:
             self._canvas.delete(self._draw_rect_id)
@@ -524,12 +542,62 @@ class BotUI:
         x1, y1 = event.x, event.y
         self._draw_start = None
         if abs(x1 - x0) < 4 or abs(y1 - y0) < 4:
-            return  # too small — likely accidental click
+            return  # too small — likely accidental click, not a drag
         cx = (x0 + x1) / 2
         cy = (y0 + y1) / 2
         screen_x = round(_CROP[0] + cx * (_CROP_W / _THUMB_W))
         screen_y = round(_CROP[1] + cy * (_CROP_H / _THUMB_H))
         self._save_manual_spot(screen_x, screen_y)
+
+    def _on_delete_spot(self, _=None):
+        if self._selected_spot is None or self._current_map_xy is None:
+            return
+        mx, my = self._current_map_xy
+        sx, sy = self._selected_spot
+        path = _resource_path(self._resource.get())
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for m in data["maps"]:
+                if m["x"] == mx and m["y"] == my:
+                    spots = m.get("spots") or []
+                    try:
+                        spots.remove([sx, sy])
+                    except ValueError:
+                        return
+                    m["spots"] = spots
+                    break
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            self._selected_spot = None
+            self._log_line(f"[UI] Spot ({sx}, {sy}) removed from map ({mx}, {my})", "scout")
+            self._refresh_progress()
+            self._draw_existing_spots(mx, my)
+        except Exception as e:
+            self._log_line(f"[UI] Error deleting spot: {e}", "err")
+
+    def _spot_at(self, cx, cy):
+        """Return (screen_x, screen_y) of the spot closest to canvas point (cx,cy), or None."""
+        if self._current_map_xy is None:
+            return None
+        mx, my = self._current_map_xy
+        path = _resource_path(self._resource.get())
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for m in data["maps"]:
+                if m["x"] == mx and m["y"] == my:
+                    best, best_d = None, self._SELECT_DIST
+                    for sx, sy in m.get("spots") or []:
+                        dcx = (sx - _CROP[0]) * (_THUMB_W / _CROP_W)
+                        dcy = (sy - _CROP[1]) * (_THUMB_H / _CROP_H)
+                        d   = ((cx - dcx) ** 2 + (cy - dcy) ** 2) ** 0.5
+                        if d < best_d:
+                            best, best_d = (sx, sy), d
+                    return best
+        except Exception:
+            pass
+        return None
 
     def _save_manual_spot(self, screen_x, screen_y):
         if self._current_map_xy is None:
@@ -553,12 +621,12 @@ class BotUI:
                 f"[UI] Spot added at ({screen_x}, {screen_y}) on map ({mx}, {my})", "scout"
             )
             self._refresh_progress()
-            # Redraw dots so the new spot shows immediately
             self._draw_existing_spots(mx, my)
         except Exception as e:
             self._log_line(f"[UI] Error saving spot: {e}", "err")
 
     def _draw_existing_spots(self, x, y):
+        self._canvas.delete("spot")   # remove only spot items, keep the background image
         path = _resource_path(self._resource.get())
         try:
             with open(path, encoding="utf-8") as f:
@@ -566,12 +634,15 @@ class BotUI:
             for m in data["maps"]:
                 if m["x"] == x and m["y"] == y:
                     for sx, sy in m.get("spots") or []:
-                        cx = (sx - _CROP[0]) * (_THUMB_W / _CROP_W)
-                        cy = (sy - _CROP[1]) * (_THUMB_H / _CROP_H)
-                        r = 5
+                        dcx = (sx - _CROP[0]) * (_THUMB_W / _CROP_W)
+                        dcy = (sy - _CROP[1]) * (_THUMB_H / _CROP_H)
+                        r   = self._SPOT_R
+                        selected = (self._selected_spot == (sx, sy))
+                        fill    = "#ff4444" if selected else "#00ff00"
+                        outline = "#cc0000" if selected else "#007700"
                         self._canvas.create_oval(
-                            cx - r, cy - r, cx + r, cy + r,
-                            fill="#00ff00", outline="#007700"
+                            dcx - r, dcy - r, dcx + r, dcy + r,
+                            fill=fill, outline=outline, tags="spot"
                         )
                     break
         except Exception:
