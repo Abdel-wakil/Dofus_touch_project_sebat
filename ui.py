@@ -442,8 +442,10 @@ class BotUI:
             self._position.set(f"({m.group(1)}, {m.group(2)})")
             self._update_map_preview(int(m.group(1)), int(m.group(2)))
 
-        # Refresh scout progress after each map save
-        if "[Scout]" in line and "spot" in line.lower():
+        # Auto-load preview after scout saves a detection screenshot
+        m = re.search(r"\[Scout\] Saved .+/(-?\d+)_(-?\d+)\.png", line)
+        if m:
+            self._update_map_preview(int(m.group(1)), int(m.group(2)))
             self._refresh_progress()
 
     def _on_process_end(self):
@@ -578,7 +580,7 @@ class BotUI:
             self._selected_spot = None
             self._log_line(f"[UI] Spot ({sx}, {sy}) removed from map ({mx}, {my})", "scout")
             self._refresh_progress()
-            self._draw_existing_spots(mx, my)
+            self._update_map_preview(mx, my)
         except Exception as e:
             self._log_line(f"[UI] Error deleting spot: {e}", "err")
 
@@ -631,7 +633,7 @@ class BotUI:
                 f"[UI] Spot added at ({screen_x}, {screen_y}) on map ({mx}, {my})", "scout"
             )
             self._refresh_progress()
-            self._draw_existing_spots(mx, my)
+            self._update_map_preview(mx, my)
         except Exception as e:
             self._log_line(f"[UI] Error saving spot: {e}", "err")
 
