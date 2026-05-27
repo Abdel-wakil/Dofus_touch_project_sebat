@@ -28,7 +28,7 @@ def main():
     x, y = args.pos.split(",")
     pos  = (int(x), int(y))
 
-    db, spots_map = _load_db_and_spots()
+    db, spots_map, blink_cfg = _load_db_and_spots()
 
     if pos not in db:
         print(f"[Harvest] {pos} is not in the resource database.")
@@ -42,7 +42,7 @@ def main():
         time.sleep(1)
     print("  GO!   ")
 
-    count = farm_current_map(pos, spots=spots)
+    count = farm_current_map(pos, spots=spots, blink_cfg=blink_cfg)
     print(f"[Harvest] Done -- {count} resource(s) harvested.")
 
 

@@ -157,22 +157,33 @@ def navigate(direction, current_pos=None, max_retries=3):
 
 _regions_cache = get_screen_regions()
 
-SPOT_WIN_X     = 45    # horizontal pixel radius around each spot center
-SPOT_WIN_Y_TOP = 140   # upward extension from spot center
-SPOT_WIN_Y_BOT = 70    # downward extension from spot center
-SPOT_FRAMES    = 5     # screenshots to take (3 consecutive pairs)
-SPOT_INTERVAL  = 0.3  # seconds between screenshots
-BLINK_DIFF     = 10    # per-pixel brightness change threshold
-MIN_BLINK_PX   = 2500   # blink-event sum per box → plant is available
-                       # fire plant ~500-2000+, stump ~0-20
+# Defaults — overridden per-resource via the "blink" key in each resource JSON.
+DEFAULT_BLINK = {
+    "spot_win_x":     45,   # horizontal pixel radius around each spot center
+    "spot_win_y_top": 140,  # upward extension from spot center
+    "spot_win_y_bot": 70,   # downward extension from spot center
+    "spot_frames":    5,    # screenshots to take
+    "spot_interval":  0.3,  # seconds between screenshots
+    "blink_diff":     10,   # per-pixel brightness change threshold
+    "min_blink_px":   2500, # pixel-sum threshold → plant is available
+}
 
 
-def check_spots_available(spots, return_mask=False):
+def check_spots_available(spots, blink_cfg=None, return_mask=False):
     """
     Per-spot blink check: hold left click at screen centre to trigger blinking,
     then count pixels that change between consecutive grayscale screenshots.
     Fire-animated plant → many blinking pixels.  Static stump → near zero.
     """
+    cfg            = {**DEFAULT_BLINK, **(blink_cfg or {})}
+    spot_win_x     = cfg["spot_win_x"]
+    spot_win_y_top = cfg["spot_win_y_top"]
+    spot_win_y_bot = cfg["spot_win_y_bot"]
+    spot_frames    = cfg["spot_frames"]
+    spot_interval  = cfg["spot_interval"]
+    blink_diff     = cfg["blink_diff"]
+    min_blink_px   = cfg["min_blink_px"]
+
     fz = _regions_cache["farm_zone"]
     fx1, fy1, fx2, fy2 = fz
     hold_x = (fx1 + fx2) // 2
@@ -186,13 +197,13 @@ def check_spots_available(spots, return_mask=False):
         time.sleep(0.05)
         pyautogui.mouseDown(button="left")
         time.sleep(0.15)
-        for i in range(SPOT_FRAMES):
+        for i in range(spot_frames):
             t0  = time.perf_counter()
             raw = sct.grab(monitor)
             frames.append(cv2.cvtColor(np.array(raw), cv2.COLOR_BGRA2BGR))
             elapsed = time.perf_counter() - t0
-            if SPOT_INTERVAL > elapsed:
-                time.sleep(SPOT_INTERVAL - elapsed)
+            if spot_interval > elapsed:
+                time.sleep(spot_interval - elapsed)
         pyautogui.mouseUp(button="left")
         time.sleep(0.05)
 
@@ -203,14 +214,14 @@ def check_spots_available(spots, return_mask=False):
         # Max change across all three colour channels — catches hue/saturation
         # shifts (background trees cycling colour) that grayscale would miss.
         diff = np.abs(frames[i].astype(np.int16) - frames[i + 1].astype(np.int16))
-        blink_sum += (diff.max(axis=2) > BLINK_DIFF).astype(np.uint8)
+        blink_sum += (diff.max(axis=2) > blink_diff).astype(np.uint8)
 
     available = []
     for cx, cy in spots:
-        x1 = max(0, cx - SPOT_WIN_X); x2 = min(w, cx + SPOT_WIN_X)
-        y1 = max(0, cy - SPOT_WIN_Y_TOP); y2 = min(h, cy + SPOT_WIN_Y_BOT)
+        x1 = max(0, cx - spot_win_x); x2 = min(w, cx + spot_win_x)
+        y1 = max(0, cy - spot_win_y_top); y2 = min(h, cy + spot_win_y_bot)
         count = int(np.sum(blink_sum[y1:y2, x1:x2]))
-        if count >= MIN_BLINK_PX:
+        if count >= min_blink_px:
             available.append((cx, cy))
             print(f"[Farm] ({cx},{cy}) blink={count} -> available")
         else:
@@ -223,29 +234,14 @@ def check_spots_available(spots, return_mask=False):
 
 # ── Harvest ───────────────────────────────────────────────────────────────────
 
-# Bright lime-green navigation arrow that appears when a map-exit is triggered.
-_ARROW_HSV_LO = np.array([50, 160, 160])
-_ARROW_HSV_HI = np.array([90, 255, 255])
-_ARROW_MIN_PX = 500   # minimum green pixels to confirm arrow is visible
-
-
-def nav_arrow_visible():
-    """Return True if the green map-exit arrow is currently on screen."""
-    with mss.mss() as sct:
-        raw = sct.grab(sct.monitors[1])
-    hsv  = cv2.cvtColor(np.array(raw), cv2.COLOR_BGRA2HSV)
-    mask = cv2.inRange(hsv, _ARROW_HSV_LO, _ARROW_HSV_HI)
-    return int(np.sum(mask > 0)) >= _ARROW_MIN_PX
-
-
-def farm_current_map(pos=None, spots=None):
+def farm_current_map(pos=None, spots=None, blink_cfg=None):
     """Check which spots are available and click them. Returns number harvested."""
     timing = get_timing()
     if not spots:
         print(f"[Farm] {pos}: no spots defined, skipping")
         return 0
     time.sleep(0.1)
-    available = check_spots_available(spots)
+    available = check_spots_available(spots, blink_cfg)
     if not available:
         print(f"[Farm] {pos}: all {len(spots)} spot(s) are stumps, skipping")
         return 0
@@ -255,11 +251,9 @@ def farm_current_map(pos=None, spots=None):
         bot_input.click(cx, cy)
         time.sleep(0.1)
         clicked += 1
-        if nav_arrow_visible():
-            print(f"[Farm] Green arrow detected after {clicked} click(s) — stopping early")
-            break
-    print(f"[Farm] Waiting {timing['harvest_wait_seconds']}s...")
-    time.sleep(timing["harvest_wait_seconds"])
+    wait = timing["harvest_wait_seconds"] * clicked
+    print(f"[Farm] Waiting {wait:.1f}s ({clicked} spot(s))...")
+    time.sleep(wait)
     return clicked
 
 
@@ -272,8 +266,9 @@ def _load_db_and_spots():
         for m in data["maps"]
         if m.get("spots")
     }
+    blink_cfg = {**DEFAULT_BLINK, **data.get("blink", {})}
     print(f"[DB] {len(db)} maps, {len(spots_map)} pre-scouted")
-    return db, spots_map
+    return db, spots_map, blink_cfg
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -290,7 +285,7 @@ def _parse_start_pos():
 
 
 def main():
-    db, spots_map = _load_db_and_spots()
+    db, spots_map, blink_cfg = _load_db_and_spots()
     route_fwd = snake_route(db)
     route_rev = list(reversed(route_fwd))
     routes    = [route_fwd, route_rev]
@@ -349,7 +344,7 @@ def main():
                 if ocr and ocr != pos:
                     print(f"[Pos] Tracker={pos} | OCR={ocr} — trusting OCR")
                     pos = ocr
-                farm_current_map(pos, spots=spots_map.get(pos))
+                farm_current_map(pos, spots=spots_map.get(pos), blink_cfg=blink_cfg)
 
             idx += 1
             if idx >= len(current_route):

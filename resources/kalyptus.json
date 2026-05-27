@@ -1,6 +1,15 @@
 {
   "resource": "Kalyptus",
   "respawn_minutes": 25,
+  "blink": {
+    "spot_win_x": 45,
+    "spot_win_y_top": 250,
+    "spot_win_y_bot": 70,
+    "spot_frames": 5,
+    "spot_interval": 0.3,
+    "blink_diff": 10,
+    "min_blink_px": 25000
+  },
   "maps": [
     {"x": -11, "y": 5, "count": 1, "spots": [[1554, 889]]},
     {"x": -11, "y": 6, "count": 2, "spots": [[928, 927]]},

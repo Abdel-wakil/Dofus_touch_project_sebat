@@ -104,7 +104,7 @@
     }
   },
   "timing": {
-    "harvest_wait_seconds": 6.9,
+    "harvest_wait_seconds": 5.9,
     "map_change_timeout_seconds": 3.5,
     "map_change_poll_interval": 0.2,
     "post_map_change_delay": 0.15,

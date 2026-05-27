@@ -343,6 +343,11 @@ class BotUI:
             self._stop_event.set()
         if self._process and self._process.poll() is None:
             self._process.terminate()
+        try:
+            import pyautogui as _pag
+            _pag.mouseUp(button="left")
+        except Exception:
+            pass
         self._log_line("[UI] Stopped by user.")
         self._set_status("Idle", "#888888")
         self._start_btn.config(state="normal")
@@ -482,7 +487,7 @@ class BotUI:
                 self.root.after(0, self._end_harvest_loop)
                 return
 
-            db, _ = _load_db_and_spots()
+            db, *_ = _load_db_and_spots()
             route_fwd = snake_route(db)           # south → north
             route_rev = list(reversed(route_fwd)) # north → south
             routes    = [route_fwd, route_rev]
@@ -584,18 +589,16 @@ class BotUI:
                         try:
                             import input as _bot
                             from config.loader import get_timing
-                            from farm import nav_arrow_visible
                             timing = get_timing()
                             clicked = 0
                             for sx, sy in avail:
                                 _bot.click(sx, sy); _t.sleep(0.1)
                                 clicked += 1
-                                if nav_arrow_visible():
-                                    self.root.after(0, self._log_line,
-                                                    f"[Loop] Green arrow — stopping at {clicked}/{len(avail)} clicks.",
-                                                    "nav")
-                                    break
-                            _t.sleep(timing["harvest_wait_seconds"])
+                            wait = timing["harvest_wait_seconds"] * clicked
+                            self.root.after(0, self._log_line,
+                                            f"[Loop] {pos} — waiting {wait:.1f}s ({clicked} spot(s))...",
+                                            "farm")
+                            _t.sleep(wait)
                             self.root.after(0, self._log_line,
                                             f"[Loop] {pos} — {clicked} harvested.",
                                             "farm")
@@ -715,18 +718,23 @@ class BotUI:
                 import sys as _sys, os as _os
                 _sys.path.insert(0, str(ROOT))
                 _os.chdir(ROOT)
-                from farm import (check_spots_available,
-                                  SPOT_WIN_X, SPOT_WIN_Y_TOP, SPOT_WIN_Y_BOT, SPOT_FRAMES)
+                from farm import check_spots_available, DEFAULT_BLINK
                 import cv2 as _cv2
                 import numpy as _np
 
-                available, blink_sum, img = check_spots_available(spots, return_mask=True)
+                blink_cfg      = {**DEFAULT_BLINK, **data.get("blink", {})}
+                spot_win_x     = blink_cfg["spot_win_x"]
+                spot_win_y_top = blink_cfg["spot_win_y_top"]
+                spot_win_y_bot = blink_cfg["spot_win_y_bot"]
+                spot_frames    = blink_cfg["spot_frames"]
+
+                available, blink_sum, img = check_spots_available(spots, blink_cfg, return_mask=True)
                 available_set = {tuple(p) for p in available}
                 results = {(sx, sy): (sx, sy) in available_set for sx, sy in spots}
                 n_avail = len(available)
 
                 # Heatmap overlay: bright = lots of blinking pixels
-                n_pairs = SPOT_FRAMES - 1
+                n_pairs = spot_frames - 1
                 norm = _np.clip(
                     (blink_sum.astype(_np.float32) / n_pairs * 255), 0, 255
                 ).astype(_np.uint8)
@@ -736,8 +744,8 @@ class BotUI:
                 lines = []
                 ch, cw = blink_sum.shape
                 for sx, sy in spots:
-                    x1 = max(0, sx - SPOT_WIN_X); x2 = min(cw, sx + SPOT_WIN_X)
-                    y1 = max(0, sy - SPOT_WIN_Y_TOP); y2 = min(ch, sy + SPOT_WIN_Y_BOT)
+                    x1 = max(0, sx - spot_win_x); x2 = min(cw, sx + spot_win_x)
+                    y1 = max(0, sy - spot_win_y_top); y2 = min(ch, sy + spot_win_y_bot)
                     count = int(_np.sum(blink_sum[y1:y2, x1:x2]))
                     avail = results[(sx, sy)]
                     tag_str = "available" if avail else "stump"
