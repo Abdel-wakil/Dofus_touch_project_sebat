@@ -128,12 +128,12 @@ def navigate(direction, current_pos=None, max_retries=3):
 _regions_cache = get_screen_regions()
 
 SPOT_WIN_X     = 45    # horizontal pixel radius around each spot center
-SPOT_WIN_Y_TOP = 120   # upward extension from spot center
+SPOT_WIN_Y_TOP = 140   # upward extension from spot center
 SPOT_WIN_Y_BOT = 70    # downward extension from spot center
-SPOT_FRAMES    = 4     # screenshots to take (3 consecutive pairs)
+SPOT_FRAMES    = 5     # screenshots to take (3 consecutive pairs)
 SPOT_INTERVAL  = 0.40  # seconds between screenshots
-BLINK_DIFF     = 15    # per-pixel brightness change threshold
-MIN_BLINK_PX   = 700   # blink-event sum per box → plant is available
+BLINK_DIFF     = 10    # per-pixel brightness change threshold
+MIN_BLINK_PX   = 750   # blink-event sum per box → plant is available
                        # fire plant ~500-2000+, stump ~0-20
 
 
@@ -159,20 +159,21 @@ def check_spots_available(spots, return_mask=False):
         for i in range(SPOT_FRAMES):
             t0  = time.perf_counter()
             raw = sct.grab(monitor)
-            frames.append(cv2.cvtColor(np.array(raw), cv2.COLOR_BGRA2GRAY))
-            if i == SPOT_FRAMES - 1:
-                img_bgr = cv2.cvtColor(np.array(raw), cv2.COLOR_BGRA2BGR)
+            frames.append(cv2.cvtColor(np.array(raw), cv2.COLOR_BGRA2BGR))
             elapsed = time.perf_counter() - t0
             if SPOT_INTERVAL > elapsed:
                 time.sleep(SPOT_INTERVAL - elapsed)
         pyautogui.mouseUp(button="left")
         time.sleep(0.05)
 
-    h, w = frames[0].shape
+    img_bgr = frames[-1]
+    h, w = img_bgr.shape[:2]
     blink_sum = np.zeros((h, w), dtype=np.uint8)
     for i in range(len(frames) - 1):
+        # Max change across all three colour channels — catches hue/saturation
+        # shifts (background trees cycling colour) that grayscale would miss.
         diff = np.abs(frames[i].astype(np.int16) - frames[i + 1].astype(np.int16))
-        blink_sum += (diff > BLINK_DIFF).astype(np.uint8)
+        blink_sum += (diff.max(axis=2) > BLINK_DIFF).astype(np.uint8)
 
     available = []
     for cx, cy in spots:
