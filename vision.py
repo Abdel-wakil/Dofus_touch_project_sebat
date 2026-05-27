@@ -69,7 +69,7 @@ def _has_leading_minus(inverted: np.ndarray) -> bool:
         return False
     row_dark = np.sum(region < 128, axis=1)   # dark pixels per row
     strip_w  = x2 - x1
-    return bool(np.max(row_dark) / strip_w > 0.35)
+    return bool(np.max(row_dark) / strip_w > 0.20)
 
 
 def read_current_position() -> Optional[Tuple[int, int]]:
