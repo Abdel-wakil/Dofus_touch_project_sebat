@@ -116,6 +116,7 @@ class BotUI:
         self._selected_spot      = None   # (screen_x, screen_y) of selected spot
         self._spot_count_var     = tk.StringVar(value="")
         self._availability_result: dict = {}  # {(sx, sy): bool} from last Check spots run
+        self._stop_event: threading.Event | None = None
 
         self._start_x.trace_add("write", self._on_start_pos_change)
         self._start_y.trace_add("write", self._on_start_pos_change)
@@ -305,8 +306,11 @@ class BotUI:
             json.dump(s, f, indent=2, ensure_ascii=False)
 
     def _start(self):
-        mode   = self._mode.get()
-        script = "scout.py" if mode == "scout" else "farm.py"
+        mode = self._mode.get()
+        if mode == "harvest":
+            self._run_harvest_loop()
+            return
+        script = "scout.py"
         self._start_btn.config(state="disabled")
         self._stop_btn.config(state="normal")
         self._set_status("Running", "#4caf50")
@@ -330,6 +334,8 @@ class BotUI:
         threading.Thread(target=self._read_output, daemon=True).start()
 
     def _stop(self):
+        if self._stop_event and not self._stop_event.is_set():
+            self._stop_event.set()
         if self._process and self._process.poll() is None:
             self._process.terminate()
         self._log_line("[UI] Stopped by user.")
@@ -434,6 +440,163 @@ class BotUI:
 
         threading.Thread(target=_do_full, daemon=True).start()
 
+    # ── Harvest loop (START button, harvest mode) ──────────────────────────────
+
+    def _run_harvest_loop(self):
+        """
+        Full map-to-map harvest loop driven from the UI.
+        For each map: check spots -> harvest available -> navigate -> repeat.
+        Mirrors the farm.py main loop but updates the UI preview after each map.
+        """
+        self._stop_event = threading.Event()
+        self._start_btn.config(state="disabled")
+        self._stop_btn.config(state="normal")
+        self._set_status("Harvesting", "#ce93d8")
+
+        # Capture start position from fields (may be empty → will OCR)
+        sx_str = self._start_x.get().strip()
+        sy_str = self._start_y.get().strip()
+        manual_start = None
+        if sx_str and sy_str:
+            try:
+                manual_start = (int(sx_str), int(sy_str))
+            except ValueError:
+                pass
+
+        self._log_line("[Loop] Harvest loop starting in 5s — switch to game!", "farm")
+
+        def _loop():
+            import time as _t
+            import sys as _sys, os as _os
+            _sys.path.insert(0, str(ROOT)); _os.chdir(ROOT)
+            from farm import _load_db_and_spots, navigate
+            from planner import choose_next
+
+            _t.sleep(5.0)
+
+            if self._stop_event.is_set():
+                self.root.after(0, self._end_harvest_loop)
+                return
+
+            db, _ = _load_db_and_spots()
+
+            # Determine initial position
+            if manual_start:
+                arrive_done = threading.Event()
+                def _set_manual(p=manual_start):
+                    self._start_x.set(str(p[0]))
+                    self._start_y.set(str(p[1]))
+                    self._update_map_preview(p[0], p[1])
+                    self._log_line(f"[Loop] Starting at {p}", "pos")
+                    arrive_done.set()
+                self.root.after(0, _set_manual)
+                arrive_done.wait(timeout=5)
+            else:
+                # OCR to find start position
+                while not self._stop_event.is_set():
+                    ocr_done = threading.Event()
+                    self.root.after(0, self._use_ocr_as_start, ocr_done.set)
+                    ocr_done.wait(timeout=10)
+                    if self._current_map_xy is not None:
+                        break
+                    self.root.after(0, self._log_line, "[Loop] OCR failed, retrying in 2s...", "err")
+                    _t.sleep(2)
+
+            if self._stop_event.is_set() or self._current_map_xy is None:
+                self.root.after(0, self._end_harvest_loop)
+                return
+
+            pos      = self._current_map_xy
+            prev_pos = None
+            visited  = set()
+
+            while not self._stop_event.is_set():
+                visited.add(pos)
+
+                if pos not in db:
+                    self.root.after(0, self._log_line,
+                                    f"[Loop] {pos} not in resource DB — skipping.", "nav")
+                else:
+                    # Check spots (pre_delay=0: already in game, map is loaded)
+                    self.root.after(0, self._log_line,
+                                    f"[Loop] {pos} — checking spots...", "farm")
+                    check_done = threading.Event()
+                    self.root.after(0, self._check_current_spots, check_done.set, 0)
+                    check_done.wait(timeout=30)
+
+                    if self._stop_event.is_set():
+                        break
+
+                    # Harvest available spots directly
+                    avail = [(sx, sy) for (sx, sy), ok in self._availability_result.items() if ok]
+                    if avail:
+                        self.root.after(0, self._log_line,
+                                        f"[Loop] Clicking {len(avail)} spot(s)...", "farm")
+                        try:
+                            import input as _bot
+                            from config.loader import get_timing
+                            timing = get_timing()
+                            for sx, sy in avail:
+                                _bot.click(sx, sy); _t.sleep(0.1)
+                            _t.sleep(timing["harvest_wait_seconds"])
+                            self.root.after(0, self._log_line,
+                                            f"[Loop] {pos} — {len(avail)} harvested.", "farm")
+                        except Exception as e:
+                            self.root.after(0, self._log_line,
+                                            f"[Loop] Harvest error: {e}", "err")
+                    else:
+                        self.root.after(0, self._log_line,
+                                        f"[Loop] {pos} — all stumps, moving on.", "farm")
+
+                if self._stop_event.is_set():
+                    break
+
+                # Choose next map and navigate
+                direction, _ = choose_next(pos, db, prev_pos, visited=visited)
+                if direction is None:
+                    self.root.after(0, self._log_line,
+                                    "[Loop] All maps visited — loop complete!", "farm")
+                    break
+
+                self.root.after(0, self._log_line, f"[Loop] Navigating {direction}...", "nav")
+                ok, nav_ocr = navigate(direction, current_pos=pos)
+
+                if ok and nav_ocr:
+                    prev_pos = pos
+                    pos      = nav_ocr
+                    arrive_done2 = threading.Event()
+                    def _arrive(p=pos):
+                        self._start_x.set(str(p[0]))
+                        self._start_y.set(str(p[1]))
+                        self._update_map_preview(p[0], p[1])
+                        self._log_line(f"[Loop] Arrived at {p}", "pos")
+                        arrive_done2.set()
+                    self.root.after(0, _arrive)
+                    arrive_done2.wait(timeout=5)
+                else:
+                    # Nav failed — OCR re-sync
+                    self.root.after(0, self._log_line,
+                                    "[Loop] Nav failed — re-reading position...", "err")
+                    ocr_done2 = threading.Event()
+                    self.root.after(0, self._use_ocr_as_start, ocr_done2.set)
+                    ocr_done2.wait(timeout=10)
+                    if self._current_map_xy:
+                        pos = self._current_map_xy
+                    else:
+                        self.root.after(0, self._log_line,
+                                        "[Loop] OCR re-sync failed — stopping.", "err")
+                        break
+
+            self.root.after(0, self._end_harvest_loop)
+
+        threading.Thread(target=_loop, daemon=True).start()
+
+    def _end_harvest_loop(self):
+        self._set_status("Idle", "#888888")
+        self._start_btn.config(state="normal")
+        self._stop_btn.config(state="disabled")
+        self._log_line("[Loop] Harvest loop ended.", "farm")
+
     def _use_ocr_as_start(self, _callback=None):
         self._log_line("[OCR] Reading position for start...")
         def _do():
@@ -497,6 +660,8 @@ class BotUI:
                 data = json.load(f)
         except Exception as e:
             self._log_line(f"[Check] Could not load resource: {e}", "err")
+            if _callback:
+                _callback()
             return
         spots = next(
             (m.get("spots") or [] for m in data["maps"] if m["x"] == mx and m["y"] == my),
@@ -504,6 +669,8 @@ class BotUI:
         )
         if not spots:
             self._log_line(f"[Check] No spots defined for ({mx}, {my}).", "err")
+            if _callback:
+                _callback()
             return
 
         resource_stem = _list_resources().get(self._resource.get(), self._resource.get().lower())
