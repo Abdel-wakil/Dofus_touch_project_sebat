@@ -218,26 +218,31 @@ class BotUI:
         bf = tk.Frame(self.root, pady=8)
         bf.pack()
 
-        self._start_btn = ttk.Button(bf, text="▶  START", command=self._start, width=14)
+        row1 = tk.Frame(bf)
+        row1.pack()
+        row2 = tk.Frame(bf)
+        row2.pack(pady=(4, 0))
+
+        self._start_btn = ttk.Button(row1, text="▶  START", command=self._start, width=14)
         self._start_btn.pack(side="left", padx=6)
 
-        self._stop_btn = ttk.Button(bf, text="■  STOP", command=self._stop,
+        self._stop_btn = ttk.Button(row1, text="■  STOP", command=self._stop,
                                     width=14, state="disabled")
         self._stop_btn.pack(side="left", padx=6)
 
-        ttk.Button(bf, text="⟳  Reset spots", command=self._reset_spots, width=14
+        ttk.Button(row1, text="⟳  Reset spots", command=self._reset_spots, width=14
                    ).pack(side="left", padx=6)
 
-        ttk.Button(bf, text="⊕  Scan map", command=self._scan_current_map, width=14
+        ttk.Button(row1, text="⊕  Scan map", command=self._scan_current_map, width=14
                    ).pack(side="left", padx=6)
 
-        ttk.Button(bf, text="✓  Check spots", command=self._check_current_spots, width=14
+        ttk.Button(row2, text="✓  Check spots", command=self._check_current_spots, width=14
                    ).pack(side="left", padx=6)
 
-        ttk.Button(bf, text="⛏  Harvest map", command=self._harvest_current_map, width=14
+        ttk.Button(row2, text="⛏  Harvest map", command=self._harvest_current_map, width=14
                    ).pack(side="left", padx=6)
 
-        ttk.Button(bf, text="⌖  Read OCR", command=self._read_ocr, width=14
+        ttk.Button(row2, text="⌖  Read OCR", command=self._read_ocr, width=14
                    ).pack(side="left", padx=6)
 
         # ── Map preview ───────────────────────────────────────────────────────
@@ -478,9 +483,11 @@ class BotUI:
                 return
 
             db, _ = _load_db_and_spots()
-            route = snake_route(db)
+            route_fwd = snake_route(db)           # south → north
+            route_rev = list(reversed(route_fwd)) # north → south
+            routes    = [route_fwd, route_rev]
             self.root.after(0, self._log_line,
-                            f"[Loop] Snake route: {len(route)} maps.", "farm")
+                            f"[Loop] Snake route: {len(route_fwd)} maps.", "farm")
 
             # Determine starting position
             if manual_start:
@@ -512,11 +519,12 @@ class BotUI:
                 return
 
             # Resume from current position in the route if possible
-            idx   = next((i for i, p in enumerate(route) if p == pos), 0)
-            sweep = 1
+            sweep         = 1
+            current_route = routes[0]
+            idx           = next((i for i, p in enumerate(current_route) if p == pos), 0)
 
             while not self._stop_event.is_set():
-                target = route[idx]
+                target = current_route[idx]
 
                 # Navigate to target one step at a time
                 while pos != target and not self._stop_event.is_set():
@@ -591,12 +599,14 @@ class BotUI:
                                         f"[Loop] {pos} — all stumps.", "farm")
 
                 idx += 1
-                if idx >= len(route):
+                if idx >= len(current_route):
                     idx = 0
-                    self.root.after(0, self._log_line,
-                                    f"[Loop] Sweep {sweep} done — starting sweep {sweep + 1}.",
-                                    "farm")
                     sweep += 1
+                    current_route = routes[(sweep - 1) % 2]
+                    direction_lbl = "↑ S→N" if (sweep % 2 == 1) else "↓ N→S"
+                    self.root.after(0, self._log_line,
+                                    f"[Loop] Sweep {sweep - 1} done — sweep {sweep} {direction_lbl}.",
+                                    "farm")
 
             self.root.after(0, self._end_harvest_loop)
 

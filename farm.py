@@ -133,7 +133,7 @@ SPOT_WIN_Y_BOT = 70    # downward extension from spot center
 SPOT_FRAMES    = 4     # screenshots to take (3 consecutive pairs)
 SPOT_INTERVAL  = 0.40  # seconds between screenshots
 BLINK_DIFF     = 15    # per-pixel brightness change threshold
-MIN_BLINK_PX   = 750   # blink-event sum per box → plant is available
+MIN_BLINK_PX   = 700   # blink-event sum per box → plant is available
                        # fire plant ~500-2000+, stump ~0-20
 
 
@@ -240,8 +240,10 @@ def _parse_start_pos():
 
 def main():
     db, spots_map = _load_db_and_spots()
-    route = snake_route(db)
-    print(f"=== Farm Bot === {len(route)} maps in snake route")
+    route_fwd = snake_route(db)
+    route_rev = list(reversed(route_fwd))
+    routes    = [route_fwd, route_rev]
+    print(f"=== Farm Bot === {len(route_fwd)} maps in snake route")
 
     pos = _parse_start_pos()
     if pos:
@@ -264,13 +266,14 @@ def main():
             time.sleep(2)
 
     # Resume mid-route if we're already at a known position
-    idx   = next((i for i, p in enumerate(route) if p == pos), 0)
-    sweep = 1
-    print(f"[Loop] Route index {idx}/{len(route)}, pos={pos}\n")
+    sweep         = 1
+    current_route = routes[0]
+    idx           = next((i for i, p in enumerate(current_route) if p == pos), 0)
+    print(f"[Loop] Route index {idx}/{len(current_route)}, pos={pos}\n")
 
     try:
         while True:
-            target = route[idx]
+            target = current_route[idx]
 
             # Navigate to target one step at a time
             while pos != target:
@@ -298,10 +301,12 @@ def main():
                 farm_current_map(pos, spots=spots_map.get(pos))
 
             idx += 1
-            if idx >= len(route):
+            if idx >= len(current_route):
                 idx = 0
-                print(f"\n[Loop] Sweep {sweep} done — starting sweep {sweep + 1}...\n")
                 sweep += 1
+                current_route = routes[(sweep - 1) % 2]
+                direction_lbl = "S→N" if (sweep % 2 == 1) else "N→S"
+                print(f"\n[Loop] Sweep {sweep - 1} done — sweep {sweep} ({direction_lbl})...\n")
 
     except KeyboardInterrupt:
         print("\n[Bot] Stopped.")
