@@ -101,6 +101,19 @@ for thresh in [180, 150, 120, 0]:
     raw    = pytesseract.image_to_string(inverted, config=_OCR_CONFIG).strip()
     result = _parse_ocr(raw)
     minus  = _has_leading_minus(inverted)
+
+    # Debug: print region details for first threshold only
+    if label == "thresh_180":
+        h, w = inverted.shape
+        x1, x2 = 18, min(62, w // 5)
+        y1, y2 = int(h * 0.15), int(h * 0.85)
+        region = inverted[y1:y2, x1:x2]
+        strip_w  = x2 - x1
+        row_dark = np.sum(region < 128, axis=1)
+        active_rows = int(np.sum(row_dark / strip_w > 0.15))
+        active_ratio = active_rows / (y2 - y1)
+        print(f"  [debug] img={w}x{h}  check=x[{x1}:{x2}] y[{y1}:{y2}]  active_rows={active_rows}/{y2-y1}  active_ratio={active_ratio:.3f}  max_row_dark={int(np.max(row_dark))}")
+
     if result:
         x, y = result
         if x > 0 and minus:

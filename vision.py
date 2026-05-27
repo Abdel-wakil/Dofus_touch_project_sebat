@@ -57,19 +57,26 @@ _OCR_CONFIG = "--psm 7 -c tessedit_char_whitelist=0123456789-,."
 
 def _has_leading_minus(inverted: np.ndarray) -> bool:
     """
-    Pixel-level check: is there a minus sign in the left margin of the padded image?
-    The minus sign is a thin horizontal bar, so we check if any single row in the
-    left strip has a high density of dark pixels (≥35% of the strip width).
+    Pixel-level check: is there a minus sign before the first digit?
+
+    A minus sign is a thin horizontal bar → dark pixels in only ~5-10% of rows.
+    A digit (e.g. '1', '8') is tall → dark pixels in 50-80% of rows.
+    We look at x=[18:60] (just after the left padding, where the first character lives)
+    and count what fraction of rows have dark content.
     """
     h, w = inverted.shape
-    x1, x2 = 5, min(90, w // 3)        # wide enough to cover the full minus stroke
-    y1, y2 = int(h * 0.25), int(h * 0.75)
+    x1, x2 = 18, min(62, w // 5)
+    y1, y2 = int(h * 0.15), int(h * 0.85)
     region = inverted[y1:y2, x1:x2]
     if region.size == 0:
         return False
-    row_dark = np.sum(region < 128, axis=1)   # dark pixels per row
-    strip_w  = x2 - x1
-    return bool(np.max(row_dark) / strip_w > 0.20)
+    strip_w      = x2 - x1
+    row_dark     = np.sum(region < 128, axis=1)
+    active_rows  = int(np.sum(row_dark / strip_w > 0.15))
+    active_ratio = active_rows / (y2 - y1)
+    # Minus: thin bar → active_ratio < 0.22
+    # Digit: tall glyph → active_ratio > 0.50
+    return bool(active_ratio < 0.22 and np.max(row_dark) > 0)
 
 
 def read_current_position() -> Optional[Tuple[int, int]]:
