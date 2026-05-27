@@ -30,7 +30,7 @@ os.chdir(ROOT)
 import cv2
 import vision
 from planner import _DELTAS
-from farm import detect_spots_adaptive, _center, navigate
+from farm import capture_frames, blink_detect, _center, navigate
 from config.loader import get_resource_path, get_active_resource
 
 
@@ -160,13 +160,13 @@ def main():
                      if m["x"] == pos[0] and m["y"] == pos[1]),
                     None
                 )
-                exp_str = f" (expect {expected})" if expected is not None else ""
-                print(f"[Scout] {pos} — scanning ({len(visited)}/{len(db)}){exp_str}...")
+                print(f"[Scout] {pos} — scanning ({len(visited)}/{len(db)})...")
 
-                frames, zones = detect_spots_adaptive(expected=expected)
-                spots = [[cx, cy] for cx, cy in (_center(z) for z in zones)]
-                exp_str2 = f"/{expected}" if expected is not None else ""
-                print(f"[Scout] Found {len(spots)}{exp_str2} spot(s): {spots}")
+                frames = capture_frames()
+                zones  = blink_detect(frames)
+                spots  = [[cx, cy] for cx, cy in (_center(z) for z in zones)]
+                exp_str = f"/{expected}" if expected is not None else ""
+                print(f"[Scout] Found {len(spots)}{exp_str} spot(s): {spots}")
 
                 _save_debug(frames, zones, spots, pos)
 

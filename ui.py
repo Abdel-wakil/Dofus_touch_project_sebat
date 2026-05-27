@@ -114,6 +114,7 @@ class BotUI:
         self._draw_start      = None   # canvas coords where drag started
         self._draw_rect_id    = None   # canvas rectangle item id
         self._selected_spot   = None   # (screen_x, screen_y) of selected spot
+        self._spot_count_var  = tk.StringVar(value="")
 
         self._build()
         self._refresh_progress()
@@ -245,6 +246,8 @@ class BotUI:
             self._canvas.bind("<Delete>",          self._on_delete_spot)
             self._canvas.bind("<BackSpace>",       self._on_delete_spot)
             self._preview_image = None
+            tk.Label(pf, textvariable=self._spot_count_var,
+                     fg="#aaaaaa", font=("Segoe UI", 8)).pack(anchor="w", pady=(2, 0))
         else:
             self._canvas = None
 
@@ -484,10 +487,13 @@ class BotUI:
         stem = _list_resources().get(self._resource.get(), self._resource.get().lower())
         path = ROOT / "screenshots" / stem / "detection" / f"{x}_{y}.png"
         self._canvas.delete("all")
+        self._selected_spot  = None
+        self._draw_rect_id   = None
         if not path.exists():
             self._canvas.create_text(_THUMB_W // 2, _THUMB_H // 2,
                                      text=f"No scan for ({x}, {y})", fill="#888888")
             self._preview_image = None
+            self._draw_existing_spots(x, y)   # still update the spot count label
             return
         try:
             img = Image.open(path)
@@ -603,6 +609,10 @@ class BotUI:
         if self._current_map_xy is None:
             self._log_line("[UI] No map position known — navigate to a map first.", "err")
             return
+        # Clear the drag rectangle immediately
+        if self._draw_rect_id:
+            self._canvas.delete(self._draw_rect_id)
+            self._draw_rect_id = None
         mx, my = self._current_map_xy
         path = _resource_path(self._resource.get())
         try:
@@ -633,10 +643,15 @@ class BotUI:
                 data = json.load(f)
             for m in data["maps"]:
                 if m["x"] == x and m["y"] == y:
-                    for sx, sy in m.get("spots") or []:
+                    spots    = m.get("spots") or []
+                    expected = m.get("count")
+                    count_str = (f"{len(spots)} / {expected} spots"
+                                 if expected is not None else f"{len(spots)} spot(s)")
+                    self._spot_count_var.set(count_str)
+                    for sx, sy in spots:
                         dcx = (sx - _CROP[0]) * (_THUMB_W / _CROP_W)
                         dcy = (sy - _CROP[1]) * (_THUMB_H / _CROP_H)
-                        r   = self._SPOT_R
+                        r        = self._SPOT_R
                         selected = (self._selected_spot == (sx, sy))
                         fill    = "#ff4444" if selected else "#00ff00"
                         outline = "#cc0000" if selected else "#007700"

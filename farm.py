@@ -217,53 +217,6 @@ def _center(box):
     return (x1 + x2) // 2, (y1 + y2) // 2
 
 
-# Adaptive detection tiers: (n_frames, duration_s, diff_threshold, min_blink_count)
-# Each tier is tried in order; we stop as soon as found >= expected.
-# Lower diff_threshold and min_blink_count = more sensitive, more false-positives.
-_DETECT_TIERS = [
-    (18, 3.0, 20, 4),   # standard
-    (24, 4.0, 15, 3),   # aggressive
-    (30, 5.0, 12, 2),   # very aggressive
-]
-
-
-def detect_spots_adaptive(expected=None):
-    """
-    Run blink detection with progressively more sensitive settings until
-    the detected spot count reaches `expected` (or all tiers are exhausted).
-
-    Returns (frames, zones) from the attempt that found the most spots.
-    If `expected` is None, only tier-0 runs.
-    """
-    best_frames, best_zones = None, []
-
-    for tier, (n, duration, diff_thresh, min_pairs) in enumerate(_DETECT_TIERS):
-        interval = duration / n
-        label    = "standard" if tier == 0 else f"tier-{tier}"
-        exp_str  = f"/{expected}" if expected is not None else ""
-        print(f"[Detect] {label}: {n} frames / {duration:.0f}s  "
-              f"diff>={diff_thresh}  min_pairs={min_pairs}")
-
-        frames = capture_frames(n=n, interval=interval)
-        zones  = blink_detect(frames, diff_threshold=diff_thresh, min_blink_count=min_pairs)
-
-        if len(zones) > len(best_zones):
-            best_frames, best_zones = frames, zones
-
-        found = len(zones)
-        if expected is None or found >= expected:
-            if expected is not None:
-                print(f"[Detect] {found}{exp_str} — OK")
-            return frames, zones
-
-        if tier < len(_DETECT_TIERS) - 1:
-            print(f"[Detect] {found}{exp_str} — retrying with stronger settings...")
-        else:
-            print(f"[Detect] {found}{exp_str} after all tiers — using best ({len(best_zones)})")
-
-    return best_frames, best_zones
-
-
 # Trees animate continuously; stumps are completely static.
 # Blink detection is the only reliable signal — no color check needed.
 #

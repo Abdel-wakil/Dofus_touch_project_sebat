@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
-from farm import detect_spots_adaptive, _center
+from farm import capture_frames, blink_detect, _center
 from scout import _save_debug, _save, _load
 from config.loader import get_resource_path, get_active_resource
 
@@ -43,14 +43,14 @@ def main():
         (m.get("count") for m in data["maps"] if m["x"] == pos[0] and m["y"] == pos[1]),
         None
     )
-    exp_str = f" (expecting {expected})" if expected is not None else ""
-    print(f"[Scan] Scanning {pos} ({resource}){exp_str} — hold still...")
+    print(f"[Scan] Scanning {pos} ({resource}) — hold still...")
 
-    frames, zones = detect_spots_adaptive(expected=expected)
-    spots = [[cx, cy] for cx, cy in (_center(z) for z in zones)]
+    frames = capture_frames()
+    zones  = blink_detect(frames)
+    spots  = [[cx, cy] for cx, cy in (_center(z) for z in zones)]
 
-    exp_str2 = f"/{expected}" if expected is not None else ""
-    print(f"[Scan] Found {len(spots)}{exp_str2} spot(s): {spots}")
+    exp_str = f"/{expected}" if expected is not None else ""
+    print(f"[Scan] Found {len(spots)}{exp_str} spot(s): {spots}")
 
     _save_debug(frames, zones, spots, pos)
 
