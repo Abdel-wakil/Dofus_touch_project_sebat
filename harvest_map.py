@@ -28,23 +28,22 @@ def main():
     x, y = args.pos.split(",")
     pos  = (int(x), int(y))
 
-    db, spots_map, color_range = _load_db_and_spots()
+    db, spots_map = _load_db_and_spots()
 
     if pos not in db:
         print(f"[Harvest] {pos} is not in the resource database.")
         return
 
     spots = spots_map.get(pos)
-    mode  = "color check" if color_range else "blink detection"
-    print(f"[Harvest] {pos} — {len(spots) if spots else 0} known spot(s) ({mode})")
+    print(f"[Harvest] {pos} -- {len(spots) if spots else 0} known spot(s) (blink-area check)")
     print("Switch to the game. Starting in 3s...")
     for i in range(3, 0, -1):
         print(f"  {i}...", end="\r", flush=True)
         time.sleep(1)
     print("  GO!   ")
 
-    count = farm_current_map(pos, spots=spots, color_range=color_range)
-    print(f"[Harvest] Done — {count} resource(s) harvested.")
+    count = farm_current_map(pos, spots=spots)
+    print(f"[Harvest] Done -- {count} resource(s) harvested.")
 
 
 if __name__ == "__main__":

@@ -110,11 +110,12 @@ class BotUI:
         self._progress_txt = tk.StringVar(value=self._progress_label())
         self._timing_var   = tk.DoubleVar(value=s["timing"]["harvest_wait_seconds"])
 
-        self._current_map_xy  = None   # (x, y) of map currently shown in preview
-        self._draw_start      = None   # canvas coords where drag started
-        self._draw_rect_id    = None   # canvas rectangle item id
-        self._selected_spot   = None   # (screen_x, screen_y) of selected spot
-        self._spot_count_var  = tk.StringVar(value="")
+        self._current_map_xy     = None   # (x, y) of map currently shown in preview
+        self._draw_start         = None   # canvas coords where drag started
+        self._draw_rect_id       = None   # canvas rectangle item id
+        self._selected_spot      = None   # (screen_x, screen_y) of selected spot
+        self._spot_count_var     = tk.StringVar(value="")
+        self._availability_result: dict = {}  # {(sx, sy): bool} from last Check spots run
 
         self._start_x.trace_add("write", self._on_start_pos_change)
         self._start_y.trace_add("write", self._on_start_pos_change)
@@ -227,6 +228,9 @@ class BotUI:
                    ).pack(side="left", padx=6)
 
         ttk.Button(bf, text="⊕  Scan map", command=self._scan_current_map, width=14
+                   ).pack(side="left", padx=6)
+
+        ttk.Button(bf, text="✓  Check spots", command=self._check_current_spots, width=14
                    ).pack(side="left", padx=6)
 
         ttk.Button(bf, text="⛏  Harvest map", command=self._harvest_current_map, width=14
@@ -353,21 +357,98 @@ class BotUI:
         threading.Thread(target=self._read_scan_output, args=(proc,), daemon=True).start()
 
     def _harvest_current_map(self):
-        sx, sy = self._start_x.get().strip(), self._start_y.get().strip()
-        if not sx or not sy:
-            self._log_line("[UI] Enter X and Y position before harvesting.")
+        # Fast path: Check spots was already run — use those results directly.
+        if self._availability_result:
+            avail_spots = [(sx, sy) for (sx, sy), ok in self._availability_result.items() if ok]
+            mx, my = self._current_map_xy or (None, None)
+            if not avail_spots:
+                self._log_line(f"[Harvest] ({mx},{my}) — 0 available spots, nothing to click.", "farm")
+                return
+            self._log_line(
+                f"[Harvest] ({mx},{my}) — {len(avail_spots)} spot(s) ready, clicking in 3s...",
+                "farm"
+            )
+            def _do_fast():
+                import time as _t
+                _t.sleep(3.0)
+                try:
+                    import sys as _sys, os as _os
+                    _sys.path.insert(0, str(ROOT)); _os.chdir(ROOT)
+                    import input as _bot
+                    from config.loader import get_timing
+                    timing = get_timing()
+                    for sx, sy in avail_spots:
+                        _bot.click(sx, sy); _t.sleep(0.1)
+                    _t.sleep(timing["harvest_wait_seconds"])
+                    self.root.after(0, self._log_line,
+                                    f"[Harvest] Done — {len(avail_spots)} resource(s) clicked.", "farm")
+                except Exception as e:
+                    self.root.after(0, self._log_line, f"[Harvest] Error: {e}", "err")
+            threading.Thread(target=_do_fast, daemon=True).start()
             return
-        self._log_line(f"[UI] Harvesting map ({sx}, {sy}) in 3s — switch to game!")
-        cmd = [PYTHON, "-u", str(ROOT / "harvest_map.py"), f"--pos={sx},{sy}"]
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            cwd=str(ROOT),
-        )
-        threading.Thread(target=self._read_scan_output, args=(proc,), daemon=True).start()
+
+        # Full pipeline: OCR -> locate map -> check spots -> harvest.
+        self._log_line("[Harvest] No check results — running full pipeline in 3s, switch to game!", "farm")
+
+        def _do_full():
+            import time as _t, json as _json
+            _t.sleep(3.0)
+            try:
+                import sys as _sys, os as _os
+                _sys.path.insert(0, str(ROOT)); _os.chdir(ROOT)
+                from vision import read_current_position
+                from farm import check_spots_available
+                import input as _bot
+                from config.loader import get_timing, get_resource_path
+
+                # 1. OCR
+                pos = read_current_position()
+                if pos is None:
+                    self.root.after(0, self._log_line, "[Harvest] OCR failed — could not read position.", "err")
+                    return
+                mx, my = pos
+                self.root.after(0, self._log_line, f"[Harvest] OCR -> ({mx},{my})", "pos")
+                self.root.after(0, self._start_x.set, str(mx))
+                self.root.after(0, self._start_y.set, str(my))
+                self.root.after(0, self._update_map_preview, mx, my)
+
+                # 2. Load spots for this map
+                with open(get_resource_path(), encoding="utf-8") as f:
+                    data = _json.load(f)
+                spots = next(
+                    (m.get("spots") or [] for m in data["maps"] if m["x"] == mx and m["y"] == my),
+                    []
+                )
+                if not spots:
+                    self.root.after(0, self._log_line, f"[Harvest] ({mx},{my}) — no spots defined.", "err")
+                    return
+                self.root.after(0, self._log_line,
+                                f"[Harvest] Checking {len(spots)} spot(s) on ({mx},{my})...", "farm")
+
+                # 3. Check spots
+                available = check_spots_available(spots)
+                results = {tuple(s): tuple(s) in {tuple(a) for a in available} for s in spots}
+                self.root.after(0, setattr, self, "_availability_result", results)
+                self.root.after(0, self._update_map_preview, mx, my, True)
+
+                if not available:
+                    self.root.after(0, self._log_line,
+                                    f"[Harvest] ({mx},{my}) — all stumps, nothing to harvest.", "farm")
+                    return
+                self.root.after(0, self._log_line,
+                                f"[Harvest] {len(available)}/{len(spots)} available — clicking...", "farm")
+
+                # 4. Harvest
+                timing = get_timing()
+                for sx, sy in available:
+                    _bot.click(sx, sy); _t.sleep(0.1)
+                _t.sleep(timing["harvest_wait_seconds"])
+                self.root.after(0, self._log_line,
+                                f"[Harvest] Done — {len(available)} resource(s) clicked.", "farm")
+            except Exception as e:
+                self.root.after(0, self._log_line, f"[Harvest] Error: {e}", "err")
+
+        threading.Thread(target=_do_full, daemon=True).start()
 
     def _use_ocr_as_start(self):
         self._log_line("[OCR] Reading position for start...")
@@ -405,6 +486,94 @@ class BotUI:
                     self.root.after(0, self._log_line, "[OCR] Failed — no match", "err")
             except Exception as e:
                 self.root.after(0, self._log_line, f"[OCR] Error: {e}", "err")
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _check_current_spots(self):
+        if self._current_map_xy is None:
+            self._log_line("[Check] No map loaded -- enter X/Y first.", "err")
+            return
+        mx, my = self._current_map_xy
+        path = _resource_path(self._resource.get())
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            self._log_line(f"[Check] Could not load resource: {e}", "err")
+            return
+        spots = next(
+            (m.get("spots") or [] for m in data["maps"] if m["x"] == mx and m["y"] == my),
+            None
+        )
+        if not spots:
+            self._log_line(f"[Check] No spots defined for ({mx}, {my}).", "err")
+            return
+
+        resource_stem = _list_resources().get(self._resource.get(), self._resource.get().lower())
+        self._log_line(
+            f"[Check] Switch to game! Holding mouse + capturing {len(spots)} spot(s) on ({mx},{my})...",
+            "farm"
+        )
+
+        def _do():
+            import time as _time
+            _time.sleep(1.5)
+            try:
+                import sys as _sys, os as _os
+                _sys.path.insert(0, str(ROOT))
+                _os.chdir(ROOT)
+                from farm import (check_spots_available,
+                                  SPOT_WIN_X, SPOT_WIN_Y_TOP, SPOT_WIN_Y_BOT, SPOT_FRAMES)
+                import cv2 as _cv2
+                import numpy as _np
+
+                available, blink_sum, img = check_spots_available(spots, return_mask=True)
+                available_set = {tuple(p) for p in available}
+                results = {(sx, sy): (sx, sy) in available_set for sx, sy in spots}
+                n_avail = len(available)
+
+                # Heatmap overlay: bright = lots of blinking pixels
+                n_pairs = SPOT_FRAMES - 1
+                norm = _np.clip(
+                    (blink_sum.astype(_np.float32) / n_pairs * 255), 0, 255
+                ).astype(_np.uint8)
+                heat = _cv2.applyColorMap(norm, _cv2.COLORMAP_HOT)
+                ann  = _cv2.addWeighted(img, 0.65, heat, 0.35, 0)
+
+                lines = []
+                ch, cw = blink_sum.shape
+                for sx, sy in spots:
+                    x1 = max(0, sx - SPOT_WIN_X); x2 = min(cw, sx + SPOT_WIN_X)
+                    y1 = max(0, sy - SPOT_WIN_Y_TOP); y2 = min(ch, sy + SPOT_WIN_Y_BOT)
+                    count = int(_np.sum(blink_sum[y1:y2, x1:x2]))
+                    avail = results[(sx, sy)]
+                    tag_str = "available" if avail else "stump"
+                    lines.append((f"[Check]   ({sx},{sy})  blink={count}  -> {tag_str}", "farm"))
+                    col = (0, 220, 0) if avail else (0, 120, 255)
+                    # Measurement rectangle
+                    _cv2.rectangle(ann, (x1, y1), (x2, y2), col, 1)
+                    # Center dot + label
+                    _cv2.circle(ann, (sx, sy), 5, col, -1)
+                    _cv2.putText(ann, "OK" if avail else "stump",
+                                 (sx + 28, sy + 5),
+                                 _cv2.FONT_HERSHEY_SIMPLEX, 0.5, col, 1, _cv2.LINE_AA)
+
+                det_dir = ROOT / "screenshots" / resource_stem / "detection"
+                det_dir.mkdir(parents=True, exist_ok=True)
+                _cv2.imwrite(str(det_dir / f"{mx}_{my}.png"), ann)
+
+                def _update():
+                    self._availability_result = results
+                    for text, tag in lines:
+                        self._log_line(text, tag)
+                    self._log_line(
+                        f"[Check] {n_avail}/{len(spots)} available -- preview updated"
+                    )
+                    if self._current_map_xy == (mx, my):
+                        self._update_map_preview(mx, my, keep_availability=True)
+                self.root.after(0, _update)
+            except Exception as e:
+                self.root.after(0, self._log_line, f"[Check] Error: {e}", "err")
+
         threading.Thread(target=_do, daemon=True).start()
 
     def _read_scan_output(self, proc):
@@ -513,8 +682,10 @@ class BotUI:
         self._log.delete("1.0", "end")
         self._log.config(state="disabled")
 
-    def _update_map_preview(self, x, y):
+    def _update_map_preview(self, x, y, keep_availability=False):
         self._current_map_xy = (x, y)
+        if not keep_availability:
+            self._availability_result = {}   # reset when map changes
         if not _PIL_AVAILABLE or self._canvas is None:
             return
         stem = _list_resources().get(self._resource.get(), self._resource.get().lower())
@@ -678,20 +849,56 @@ class BotUI:
                 if m["x"] == x and m["y"] == y:
                     spots    = m.get("spots") or []
                     expected = m.get("count")
-                    count_str = (f"{len(spots)} / {expected} spots"
-                                 if expected is not None else f"{len(spots)} spot(s)")
+                    checked  = bool(self._availability_result)
+
+                    if checked and spots:
+                        n_avail = sum(
+                            1 for s in spots
+                            if self._availability_result.get((s[0], s[1])) is True
+                        )
+                        count_str = f"{n_avail} available / {len(spots)} spots"
+                    elif expected is not None:
+                        count_str = f"{len(spots)} / {expected} spots"
+                    else:
+                        count_str = f"{len(spots)} spot(s)"
                     self._spot_count_var.set(count_str)
+
                     for sx, sy in spots:
                         dcx = (sx - _CROP[0]) * (_THUMB_W / _CROP_W)
                         dcy = (sy - _CROP[1]) * (_THUMB_H / _CROP_H)
                         r        = self._SPOT_R
                         selected = (self._selected_spot == (sx, sy))
-                        fill    = "#ff4444" if selected else "#00ff00"
-                        outline = "#cc0000" if selected else "#007700"
+                        avail    = self._availability_result.get((sx, sy))
+
+                        if not checked:
+                            fill, outline = "#00ff00", "#007700"
+                            lbl = None
+                        elif avail is True:
+                            fill, outline = "#00ff44", "#00aa44"   # green = available
+                            lbl = "OK"
+                        elif avail is False:
+                            fill, outline = "#ff8800", "#884400"   # orange = stump
+                            lbl = "stump"
+                        else:
+                            fill, outline = "#ffff00", "#888800"   # yellow = not in check
+                            lbl = None
+
+                        if selected:
+                            outline = "#ffffff"
+
                         self._canvas.create_oval(
                             dcx - r, dcy - r, dcx + r, dcy + r,
-                            fill=fill, outline=outline, tags="spot"
+                            fill=fill, outline=outline,
+                            width=2 if selected else 1,
+                            tags="spot"
                         )
+                        if lbl:
+                            lbl_color = "#00ff44" if avail else "#ff8800"
+                            self._canvas.create_text(
+                                dcx + r + 4, dcy, text=lbl,
+                                fill=lbl_color, font=("Consolas", 7),
+                                anchor="w", tags="spot"
+                            )
                     break
         except Exception:
             pass
