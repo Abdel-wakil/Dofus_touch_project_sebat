@@ -55,6 +55,22 @@ def save_screenshot(img: np.ndarray, path: str) -> None:
 _OCR_CONFIG = "--psm 7 -c tessedit_char_whitelist=0123456789-,."
 
 
+def _has_leading_minus(inverted: np.ndarray) -> bool:
+    """
+    Pixel-level check: is there a minus sign in the left margin of the padded image?
+    After padding with 20px left, the minus sign (if present) sits at roughly x=5-40.
+    We look for a horizontal dark band in the vertical middle of that strip.
+    """
+    h, w = inverted.shape
+    x1, x2 = 5, min(42, w // 4)
+    y1, y2 = int(h * 0.30), int(h * 0.70)
+    region = inverted[y1:y2, x1:x2]
+    if region.size == 0:
+        return False
+    dark_ratio = float(np.sum(region < 128)) / region.size
+    return dark_ratio > 0.12
+
+
 def read_current_position() -> Optional[Tuple[int, int]]:
     """
     OCR the HUD coordinate display.
@@ -79,17 +95,20 @@ def read_current_position() -> Optional[Tuple[int, int]]:
         else:
             _, binary = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY)
 
-        # Fill tiny gaps in text strokes, then remove isolated noise specks
         binary   = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_k)
         binary   = cv2.morphologyEx(binary, cv2.MORPH_OPEN,  open_k)
         inverted = cv2.bitwise_not(binary)
-        inverted = cv2.dilate(inverted, minus_k, iterations=1)  # thicken minus sign horizontally
+        inverted = cv2.dilate(inverted, minus_k, iterations=1)
         inverted = cv2.copyMakeBorder(inverted, 10, 10, 20, 10,
-                                      cv2.BORDER_CONSTANT, value=255)  # pad so edge chars aren't clipped
+                                      cv2.BORDER_CONSTANT, value=255)
 
         raw    = pytesseract.image_to_string(inverted, config=_OCR_CONFIG).strip()
         result = _parse_ocr(raw)
         if result:
+            x, y = result
+            # Tesseract silently drops leading '-' — verify via pixel check
+            if x > 0 and _has_leading_minus(inverted):
+                result = (-x, y)
             return result
 
     print(f"[Vision] OCR failed (all thresholds). Last raw: '{raw}'")

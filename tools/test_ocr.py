@@ -39,7 +39,7 @@ import mss
 import numpy as np
 import pytesseract
 from config.loader import get_active_profile
-from vision import _parse_ocr, _OCR_CONFIG
+from vision import _parse_ocr, _OCR_CONFIG, _has_leading_minus
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -100,8 +100,13 @@ for thresh in [180, 150, 120, 0]:
 
     raw    = pytesseract.image_to_string(inverted, config=_OCR_CONFIG).strip()
     result = _parse_ocr(raw)
+    minus  = _has_leading_minus(inverted)
+    if result:
+        x, y = result
+        if x > 0 and minus:
+            result = (-x, y)
 
-    status = f"-> '{raw}' => {result}" if result else f"-> '{raw}' => no match"
+    status = f"-> '{raw}' => {result}  [minus_pixel={minus}]" if result else f"-> '{raw}' => no match  [minus_pixel={minus}]"
     print(f"  {label:18s}  {status}")
 
     if final_img is None:
