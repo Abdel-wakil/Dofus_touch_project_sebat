@@ -169,6 +169,91 @@ DEFAULT_BLINK = {
 }
 
 
+# ── Discovery helpers (used by scout.py / scan_map.py) ───────────────────────
+
+def _merge_boxes(boxes, gap=40):
+    """Merge bounding boxes that overlap or are within gap pixels of each other."""
+    if not boxes:
+        return []
+    merged = True
+    while merged:
+        merged = False
+        result = []
+        used   = [False] * len(boxes)
+        for i in range(len(boxes)):
+            if used[i]:
+                continue
+            x1, y1, x2, y2 = boxes[i]
+            for j in range(i + 1, len(boxes)):
+                if used[j]:
+                    continue
+                bx1, by1, bx2, by2 = boxes[j]
+                if x1 - gap <= bx2 and x2 + gap >= bx1 and y1 - gap <= by2 and y2 + gap >= by1:
+                    x1, y1 = min(x1, bx1), min(y1, by1)
+                    x2, y2 = max(x2, bx2), max(y2, by2)
+                    used[j] = True
+                    merged  = True
+            result.append((x1, y1, x2, y2))
+            used[i] = True
+        boxes = result
+    return boxes
+
+
+def _center(box):
+    x1, y1, x2, y2 = box
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
+def capture_frames(blink_cfg=None):
+    """Capture a burst of frames for whole-map blink discovery (scout / scan_map)."""
+    cfg    = {**DEFAULT_BLINK, **(blink_cfg or {})}
+    fz     = _regions_cache["farm_zone"]
+    fx1, fy1, fx2, fy2 = fz
+    hold_x = (fx1 + fx2) // 2
+    hold_y = (fy1 + fy2) // 2
+    frames = []
+    with mss.mss() as sct:
+        monitor = sct.monitors[1]
+        pyautogui.moveTo(hold_x, hold_y)
+        time.sleep(0.05)
+        pyautogui.mouseDown(button="left")
+        time.sleep(0.15)
+        for _ in range(cfg["spot_frames"]):
+            t0  = time.perf_counter()
+            raw = sct.grab(monitor)
+            frames.append(cv2.cvtColor(np.array(raw), cv2.COLOR_BGRA2BGR))
+            elapsed = time.perf_counter() - t0
+            if cfg["spot_interval"] > elapsed:
+                time.sleep(cfg["spot_interval"] - elapsed)
+        pyautogui.mouseUp(button="left")
+        time.sleep(0.05)
+    return frames
+
+
+def blink_detect(frames, blink_cfg=None):
+    """Find blinking resource blobs; returns list of (x1,y1,x2,y2) boxes."""
+    from config.loader import get_detection_config
+    cfg      = {**DEFAULT_BLINK, **(blink_cfg or {})}
+    det      = get_detection_config()
+    min_area = det.get("min_blob_area", 80)
+    max_area = det.get("max_blob_area", 8000)
+    box_pad  = det.get("box_padding", 12)
+    h, w     = frames[0].shape[:2]
+    blink_map = np.zeros((h, w), dtype=np.uint8)
+    for i in range(len(frames) - 1):
+        diff       = np.abs(frames[i].astype(np.int16) - frames[i + 1].astype(np.int16))
+        blink_map += (diff.max(axis=2) > cfg["blink_diff"]).astype(np.uint8)
+    mask        = (blink_map >= 2).astype(np.uint8) * 255
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if min_area <= area <= max_area:
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            boxes.append((x - box_pad, y - box_pad, x + bw + box_pad, y + bh + box_pad))
+    return _merge_boxes(boxes)
+
+
 def check_spots_available(spots, blink_cfg=None, return_mask=False):
     """
     Per-spot blink check: hold left click at screen centre to trigger blinking,

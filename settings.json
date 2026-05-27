@@ -1,6 +1,6 @@
 {
   "active_profile": "2k",
-  "active_resource": "boumu",
+  "active_resource": "oliviolet",
   "profiles": {
     "2k": {
       "resolution": [
@@ -42,7 +42,7 @@
       "coord_region": [
         0.109,
         0.148,
-        0.143,
+        0.16,
         0.18
       ],
       "farm_zone": [

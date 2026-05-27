@@ -29,7 +29,7 @@ os.chdir(ROOT)
 import cv2
 import vision
 from planner import _DELTAS, choose_next
-from farm import capture_frames, blink_detect, _center, navigate
+from farm import capture_frames, blink_detect, _center, navigate, DEFAULT_BLINK
 from config.loader import get_resource_path, get_active_resource
 
 
@@ -60,15 +60,15 @@ def _load():
 
 
 def _save(data):
-    """Write resource JSON with one compact line per map entry."""
+    """Write resource JSON preserving all top-level fields; one compact line per map."""
     path  = get_resource_path()
     maps  = data["maps"]
-    lines = [
-        "{",
-        f'  "resource": {json.dumps(data["resource"])},',
-        f'  "respawn_minutes": {data["respawn_minutes"]},',
-        '  "maps": [',
-    ]
+    lines = ["{"]
+    for key, val in data.items():
+        if key == "maps":
+            continue
+        lines.append(f"  {json.dumps(key)}: {json.dumps(val, ensure_ascii=False)},")
+    lines.append('  "maps": [')
     for i, m in enumerate(maps):
         comma = "," if i < len(maps) - 1 else ""
         lines.append(f"    {json.dumps(m, ensure_ascii=False)}{comma}")
@@ -90,8 +90,9 @@ def _parse_start_pos():
 
 
 def main():
-    data = _load()
-    db   = {(m["x"], m["y"]) for m in data["maps"]}
+    data      = _load()
+    blink_cfg = {**DEFAULT_BLINK, **data.get("blink", {})}
+    db        = {(m["x"], m["y"]) for m in data["maps"]}
 
     already = sum(1 for m in data["maps"] if "spots" in m)
     print(f"=== Scout Run === ({len(db)} maps total, {already} already scanned)")
@@ -145,8 +146,8 @@ def main():
                 )
                 print(f"[Scout] {pos} — scanning ({len(visited)}/{len(db)})...")
 
-                frames = capture_frames()
-                zones  = blink_detect(frames)
+                frames = capture_frames(blink_cfg)
+                zones  = blink_detect(frames, blink_cfg)
                 spots  = [[cx, cy] for cx, cy in (_center(z) for z in zones)]
                 exp_str = f"/{expected}" if expected is not None else ""
                 print(f"[Scout] Found {len(spots)}{exp_str} spot(s): {spots}")

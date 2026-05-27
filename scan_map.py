@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
-from farm import capture_frames, blink_detect, _center
+from farm import capture_frames, blink_detect, _center, DEFAULT_BLINK
 from scout import _save_debug, _save, _load
 from config.loader import get_resource_path, get_active_resource
 
@@ -31,9 +31,10 @@ def main():
     x, y = args.pos.split(",")
     pos = (int(x), int(y))
 
-    resource = get_active_resource()
-    data = _load()
-    db   = {(m["x"], m["y"]) for m in data["maps"]}
+    resource  = get_active_resource()
+    data      = _load()
+    blink_cfg = {**DEFAULT_BLINK, **data.get("blink", {})}
+    db        = {(m["x"], m["y"]) for m in data["maps"]}
 
     if pos not in db:
         print(f"[Scan] {pos} is not in {resource}.json — nothing to save.")
@@ -45,8 +46,8 @@ def main():
     )
     print(f"[Scan] Scanning {pos} ({resource}) — hold still...")
 
-    frames = capture_frames()
-    zones  = blink_detect(frames)
+    frames = capture_frames(blink_cfg)
+    zones  = blink_detect(frames, blink_cfg)
     spots  = [[cx, cy] for cx, cy in (_center(z) for z in zones)]
 
     exp_str = f"/{expected}" if expected is not None else ""
