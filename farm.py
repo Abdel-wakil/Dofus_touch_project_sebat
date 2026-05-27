@@ -380,25 +380,19 @@ def farm_current_map(pos=None, spots=None, color_range=None):
 
     if spots:
         time.sleep(0.1)  # let map elements finish rendering
-        if color_range:
-            print(f"[Farm] Color-checking {len(spots)} spot(s)...")
-        else:
-            print(f"[Farm] Watching {len(spots)} spot(s) ({SPOT_BLINK_DURATION}s, {SPOT_BLINK_FRAMES} frames)...")
-        available = check_spots_available([(cx, cy) for cx, cy in spots],
-                                          color_range=color_range)
-        if not available:
-            print("[Farm] No available spots — all stumps, skipping harvest.")
-            return 0
-        print(f"[Farm] {len(available)}/{len(spots)} spot(s) available")
-        for cx, cy in available:
+        print(f"[Farm] Task list for {pos}: {len(spots)} spot(s) to click")
+        for i, (cx, cy) in enumerate(spots, 1):
+            print(f"[Farm]   #{i}  ({cx}, {cy})")
+        for cx, cy in spots:
             print(f"[Farm] Clicking ({cx}, {cy})")
             bot_input.click(cx, cy)
             time.sleep(0.1)
         print(f"[Farm] Waiting {timing['harvest_wait_seconds']}s...")
         time.sleep(timing["harvest_wait_seconds"])
-        return len(available)
+        return len(spots)
 
-    print("[Farm] Blink-detecting resources...")
+    # No pre-scouted spots — fall back to blink detection
+    print("[Farm] No known spots — blink-detecting resources...")
     frames = capture_frames()
     zones  = blink_detect(frames)
     print(f"[Farm] {len(zones)} resource(s) detected")
