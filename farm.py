@@ -39,6 +39,37 @@ import vision
 from planner import choose_next, _DELTAS
 
 
+def _segmented_click(region, attempt, max_retries):
+    """
+    Click in a different segment of the edge region on each retry.
+
+    Attempt 0 → fully random (covers whole region).
+    Attempts 1+ → divide the region's long axis into (max_retries-1)
+    equal strips and cycle through them, so each retry targets a
+    different passage and we don't keep hitting the same obstacle.
+    """
+    x1, y1, x2, y2 = region
+    if attempt == 0:
+        bot_input.click_random_in_region(region)
+        return
+    w, h    = x2 - x1, y2 - y1
+    n_segs  = max(max_retries - 1, 1)
+    seg_idx = (attempt - 1) % n_segs
+    if w >= h:                          # wide strip (top/bottom) — split along x
+        seg_w = w / n_segs
+        sx1   = x1 + seg_idx * seg_w
+        sx2   = sx1 + seg_w
+        x     = random.randint(round(sx1), round(sx2))
+        y     = random.randint(y1, y2)
+    else:                               # tall strip (left/right) — split along y
+        seg_h = h / n_segs
+        sy1   = y1 + seg_idx * seg_h
+        sy2   = sy1 + seg_h
+        x     = random.randint(x1, x2)
+        y     = random.randint(round(sy1), round(sy2))
+    bot_input.click(x, y)
+
+
 def navigate(direction, current_pos=None, max_retries=3):
     """
     Click the edge, wait for the map transition, then validate the new position.
@@ -63,7 +94,7 @@ def navigate(direction, current_pos=None, max_retries=3):
         else:
             print(f"[Nav] Nav retry {attempt}/{max_retries - 1}...")
 
-        bot_input.click_random_in_region(regions[direction])
+        _segmented_click(regions[direction], attempt, max_retries)
         vision.wait_for_map_change()
         time.sleep(timing["post_map_change_delay"])
 
@@ -396,9 +427,12 @@ def main():
 
     prev_pos      = None
     ocr_candidate = None  # OCR value that disagreed with tracker; checked next move
+    visited       = set()
 
     try:
         while True:
+            visited.add(pos)
+
             # Validate position — store mismatches as candidates for next-move check
             ocr = vision.read_current_position()
             if ocr is None:
@@ -412,7 +446,7 @@ def main():
 
             farm_current_map(pos, spots=spots_map.get(pos))
 
-            direction, _ = choose_next(pos, db, prev_pos)
+            direction, _ = choose_next(pos, db, prev_pos, visited=visited)
             if direction is None:
                 break
 

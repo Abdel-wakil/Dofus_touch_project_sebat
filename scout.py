@@ -19,7 +19,6 @@ import sys
 import os
 import json
 import time
-import random
 import argparse
 from pathlib import Path
 
@@ -29,7 +28,7 @@ os.chdir(ROOT)
 
 import cv2
 import vision
-from planner import _DELTAS
+from planner import _DELTAS, choose_next
 from farm import capture_frames, blink_detect, _center, navigate
 from config.loader import get_resource_path, get_active_resource
 
@@ -77,22 +76,6 @@ def _save(data):
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
-
-def _choose_next(pos, db, visited, prev_pos):
-    """Prefer unvisited neighbours; backtrack through visited ones if needed."""
-    cx, cy = pos
-    all_moves = [
-        (d, (cx + dx, cy + dy))
-        for d, (dx, dy) in _DELTAS.items()
-        if (cx + dx, cy + dy) in db
-    ]
-    if not all_moves:
-        return None, None
-    unvisited = [(d, p) for d, p in all_moves if p not in visited]
-    if unvisited:
-        return random.choice(unvisited)
-    forward = [(d, p) for d, p in all_moves if p != prev_pos]
-    return random.choice(forward if forward else all_moves)
 
 
 def _parse_start_pos():
@@ -180,7 +163,7 @@ def main():
                 print(f"\n[Scout] All {len(db)} maps scanned. kalyptus.json updated.")
                 break
 
-            direction, _ = _choose_next(pos, db, visited, prev_pos)
+            direction, _ = choose_next(pos, db, prev_pos, visited=visited)
             if direction is None:
                 print("[Scout] No moves available — done.")
                 break
