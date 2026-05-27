@@ -76,7 +76,7 @@ cv2.imwrite(str(OUT_DIR / "gray.png"), gray)
 
 close_k = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
 open_k  = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-minus_k = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1))  # horizontal — thickens minus sign
+minus_k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 1))  # horizontal — thickens minus sign
 
 final_img   = None
 final_label = None

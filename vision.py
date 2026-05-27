@@ -71,7 +71,7 @@ def read_current_position() -> Optional[Tuple[int, int]]:
 
     close_k = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     open_k  = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-    minus_k = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1))  # horizontal — thickens minus sign
+    minus_k = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 1))  # horizontal — thickens minus sign
 
     for thresh in [180, 150, 120, 0]:   # 0 = OTSU
         if thresh == 0:
