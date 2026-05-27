@@ -7,6 +7,17 @@ detects harvestable trees by blink animation, clicks them, and loops.
 
 ## Requirements
 
+### Virtual environment (recommended)
+
+```
+python -m venv venv
+```
+
+Activate it:
+
+- **Windows:** `venv\Scripts\activate`
+- **Mac/Linux:** `source venv/bin/activate`
+
 ### Python packages
 
 ```
