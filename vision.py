@@ -79,6 +79,26 @@ def _has_leading_minus(inverted: np.ndarray) -> bool:
     return bool(active_ratio < 0.22 and np.max(row_dark) > 0)
 
 
+def _resolve_sign(x: int, y: int) -> Tuple[int, int]:
+    """
+    Pixel check says x might be negative. Confirm by looking at the active
+    resource's map list: if (x, y) is not a known map but (-x, y) is, negate.
+    Falls back to negating if neither is found (pixel check wins).
+    """
+    import json
+    from config.loader import get_resource_path
+    try:
+        with open(get_resource_path(), encoding="utf-8") as f:
+            maps = {(m["x"], m["y"]) for m in json.load(f)["maps"]}
+        if (x, y) in maps:
+            return (x, y)       # positive coordinate is valid — don't negate
+        if (-x, y) in maps:
+            return (-x, y)      # negative version is valid — minus was dropped
+    except Exception:
+        pass
+    return (-x, y)              # fallback: trust the pixel check
+
+
 def read_current_position() -> Optional[Tuple[int, int]]:
     """
     OCR the HUD coordinate display.
@@ -114,9 +134,10 @@ def read_current_position() -> Optional[Tuple[int, int]]:
         result = _parse_ocr(raw)
         if result:
             x, y = result
-            # Tesseract silently drops leading '-' — verify via pixel check
+            # Tesseract silently drops leading '-' — verify via pixel check,
+            # then confirm against the active resource's map list
             if x > 0 and _has_leading_minus(inverted):
-                result = (-x, y)
+                result = _resolve_sign(x, y)
             return result
 
     print(f"[Vision] OCR failed (all thresholds). Last raw: '{raw}'")
