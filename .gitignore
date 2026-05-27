@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+
+# Debug screenshots (large, generated at runtime)
+screenshots/
+
+# Build artifacts
+mnt/
+
+# IDE
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store

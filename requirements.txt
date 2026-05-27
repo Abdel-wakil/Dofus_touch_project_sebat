@@ -1,0 +1,20 @@
+# Computer vision & screen capture
+opencv-python>=4.8.0
+mss>=9.0.1
+numpy>=1.24.0
+
+# OCR for coordinate reading
+pytesseract>=0.3.10
+
+# Human-like mouse movement
+humancursor>=1.1.5
+pyautogui>=0.9.54
+
+# Keyboard hooks
+keyboard>=0.13.5
+
+# UI
+customtkinter>=5.2.0
+
+# Utilities
+Pillow>=10.0.0
