@@ -116,6 +116,9 @@ class BotUI:
         self._selected_spot   = None   # (screen_x, screen_y) of selected spot
         self._spot_count_var  = tk.StringVar(value="")
 
+        self._start_x.trace_add("write", self._on_start_pos_change)
+        self._start_y.trace_add("write", self._on_start_pos_change)
+
         self._build()
         self._refresh_progress()
 
@@ -272,6 +275,14 @@ class BotUI:
         self._log.tag_config("farm",  foreground="#ce93d8")
 
     # ── Callbacks ──────────────────────────────────────────────────────────────
+
+    def _on_start_pos_change(self, *_):
+        try:
+            x = int(self._start_x.get().strip())
+            y = int(self._start_y.get().strip())
+        except ValueError:
+            return
+        self._update_map_preview(x, y)
 
     def _on_profile_change(self):
         _save_profile(self._profile.get())
