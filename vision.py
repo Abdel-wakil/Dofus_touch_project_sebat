@@ -68,10 +68,10 @@ def read_current_position() -> Optional[Tuple[int, int]]:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray = cv2.resize(gray, (gray.shape[1] * 4, gray.shape[0] * 4),
                       interpolation=cv2.INTER_CUBIC)
-    gray = gray[gray.shape[0] // 3:, :]  # drop top third — map name noise bleeds into coord line
 
     close_k = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     open_k  = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+    minus_k = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1))  # horizontal — thickens minus sign
 
     for thresh in [180, 150, 120, 0]:   # 0 = OTSU
         if thresh == 0:
@@ -83,6 +83,7 @@ def read_current_position() -> Optional[Tuple[int, int]]:
         binary   = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_k)
         binary   = cv2.morphologyEx(binary, cv2.MORPH_OPEN,  open_k)
         inverted = cv2.bitwise_not(binary)
+        inverted = cv2.dilate(inverted, minus_k, iterations=1)  # thicken minus sign horizontally
 
         raw    = pytesseract.image_to_string(inverted, config=_OCR_CONFIG).strip()
         result = _parse_ocr(raw)
