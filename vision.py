@@ -68,6 +68,7 @@ def read_current_position() -> Optional[Tuple[int, int]]:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray = cv2.resize(gray, (gray.shape[1] * 4, gray.shape[0] * 4),
                       interpolation=cv2.INTER_CUBIC)
+    gray = gray[gray.shape[0] // 2:, :]  # drop top half — map name noise bleeds into coord line
 
     close_k = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
     open_k  = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
