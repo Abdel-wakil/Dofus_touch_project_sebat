@@ -31,10 +31,14 @@ import cv2
 import vision
 from planner import _DELTAS
 from farm import capture_frames, blink_detect, _center, navigate
-from config.loader import get_resource_path
+from config.loader import get_resource_path, get_active_resource
 
-_DET_DIR = ROOT / "screenshots" / "scout" / "detection"
-_DET_DIR.mkdir(parents=True, exist_ok=True)
+
+def _det_dir() -> Path:
+    stem = get_active_resource()
+    d = ROOT / "screenshots" / stem / "detection"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def _save_debug(frames, zones, spots, pos):
@@ -46,8 +50,9 @@ def _save_debug(frames, zones, spots, pos):
         cv2.drawMarker(out, (cx, cy), (0, 0, 255), cv2.MARKER_CROSS, 24, 2)
         cv2.putText(out, f"({cx},{cy})", (cx + 8, cy - 8),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    cv2.imwrite(str(_DET_DIR / f"{tag}.png"), out)
-    print(f"[Scout] Saved screenshots/scout/detection/{tag}.png ({len(spots)} spots)")
+    d = _det_dir()
+    cv2.imwrite(str(d / f"{tag}.png"), out)
+    print(f"[Scout] Saved screenshots/{get_active_resource()}/detection/{tag}.png ({len(spots)} spots)")
 
 
 def _load():

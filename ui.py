@@ -447,7 +447,8 @@ class BotUI:
         self._current_map_xy = (x, y)
         if not _PIL_AVAILABLE or self._canvas is None:
             return
-        path = ROOT / "screenshots" / "scout" / "detection" / f"{x}_{y}.png"
+        stem = _list_resources().get(self._resource.get(), self._resource.get().lower())
+        path = ROOT / "screenshots" / stem / "detection" / f"{x}_{y}.png"
         self._canvas.delete("all")
         if not path.exists():
             self._canvas.create_text(_THUMB_W // 2, _THUMB_H // 2,
