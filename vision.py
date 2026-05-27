@@ -81,22 +81,33 @@ def _has_leading_minus(inverted: np.ndarray) -> bool:
 
 def _resolve_sign(x: int, y: int) -> Tuple[int, int]:
     """
-    Pixel check says x might be negative. Confirm by looking at the active
-    resource's map list: if (x, y) is not a known map but (-x, y) is, negate.
-    Falls back to negating if neither is found (pixel check wins).
+    Correct x's sign using the active resource's map list.
+
+    If every map in the resource has negative X → x must be negative (Kalyptus).
+    If every map has positive X              → x must be positive (Bambu Sombre).
+    Mixed-sign resources                     → fall back to map-list lookup.
     """
     import json
     from config.loader import get_resource_path
     try:
         with open(get_resource_path(), encoding="utf-8") as f:
-            maps = {(m["x"], m["y"]) for m in json.load(f)["maps"]}
-        if (x, y) in maps:
-            return (x, y)       # positive coordinate is valid — don't negate
-        if (-x, y) in maps:
-            return (-x, y)      # negative version is valid — minus was dropped
+            data = json.load(f)
+        xs      = [m["x"] for m in data["maps"]]
+        map_set = {(m["x"], m["y"]) for m in data["maps"]}
+
+        if all(v < 0 for v in xs):      # e.g. Kalyptus — X always negative
+            return (-abs(x), y)
+        if all(v > 0 for v in xs):      # e.g. Bambu Sombre — X always positive
+            return (abs(x), y)
+
+        # Mixed-sign resource: check map list
+        if (x, y) in map_set:
+            return (x, y)
+        if (-x, y) in map_set:
+            return (-x, y)
     except Exception:
         pass
-    return (-x, y)              # fallback: trust the pixel check
+    return (x, y)               # can't determine — return as-is
 
 
 def read_current_position() -> Optional[Tuple[int, int]]:
@@ -133,11 +144,8 @@ def read_current_position() -> Optional[Tuple[int, int]]:
         raw    = pytesseract.image_to_string(inverted, config=_OCR_CONFIG).strip()
         result = _parse_ocr(raw)
         if result:
-            x, y = result
-            # Tesseract silently drops leading '-' — verify via pixel check,
-            # then confirm against the active resource's map list
-            if x > 0 and _has_leading_minus(inverted):
-                result = _resolve_sign(x, y)
+            x, y  = result
+            result = _resolve_sign(x, y)
             return result
 
     print(f"[Vision] OCR failed (all thresholds). Last raw: '{raw}'")

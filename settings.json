@@ -1,6 +1,6 @@
 {
   "active_profile": "2k",
-  "active_resource": "kalyptus",
+  "active_resource": "boumu",
   "profiles": {
     "2k": {
       "resolution": [
@@ -104,16 +104,16 @@
     }
   },
   "timing": {
-    "harvest_wait_seconds": 2.7,
+    "harvest_wait_seconds": 3.9,
     "map_change_timeout_seconds": 3.5,
     "map_change_poll_interval": 0.2,
-    "post_map_change_delay": 0.3,
-    "click_duration_min": 0.1,
-    "click_duration_max": 0.2,
+    "post_map_change_delay": 0.15,
+    "click_duration_min": 0.05,
+    "click_duration_max": 0.1,
     "mouse_pre_click_delay_min": 0.01,
-    "mouse_pre_click_delay_max": 0.05,
-    "mouse_move_duration_min": 0.15,
-    "mouse_move_duration_max": 0.35,
+    "mouse_pre_click_delay_max": 0.02,
+    "mouse_move_duration_min": 0.08,
+    "mouse_move_duration_max": 0.18,
     "monster_check_interval": 0.1,
     "scout_map_settle_delay": 1.5
   },

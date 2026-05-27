@@ -393,7 +393,7 @@ def farm_current_map(pos=None, spots=None, color_range=None):
         for cx, cy in available:
             print(f"[Farm] Clicking ({cx}, {cy})")
             bot_input.click(cx, cy)
-            time.sleep(0.3)
+            time.sleep(0.1)
         print(f"[Farm] Waiting {timing['harvest_wait_seconds']}s...")
         time.sleep(timing["harvest_wait_seconds"])
         return len(available)
@@ -409,7 +409,7 @@ def farm_current_map(pos=None, spots=None, color_range=None):
         cx, cy = _center(zone)
         print(f"[Farm] Clicking ({cx}, {cy})")
         bot_input.click(cx, cy)
-        time.sleep(0.3)
+        time.sleep(0.1)
 
     if zones:
         print(f"[Farm] Waiting {timing['harvest_wait_seconds']}s...")
