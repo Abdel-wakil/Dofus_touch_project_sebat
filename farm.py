@@ -263,14 +263,53 @@ SPOT_BLINK_DURATION  = 3.0  # seconds — longer window catches slow/subtle blin
 SPOT_BLINK_FRAMES    = 18   # 17 consecutive frame pairs @ ~0.167 s each
 SPOT_BLINK_MIN_PAIRS = 4    # out of 17 — trees easily hit 6+, stumps hit 0-2
 
+COLOR_WINDOW      = 35   # pixel radius around spot for color check
+MIN_COLOR_PIXELS  = 8    # minimum matching pixels to consider spot available
 
-def check_spots_available(spots):
+
+def _check_spots_by_color(spots, hsv_lower, hsv_upper):
     """
-    Observe each saved spot for SPOT_BLINK_DURATION seconds.
-    Trees animate continuously -> many changed frame-pairs.
-    Stumps are static        -> 0-2 changed pairs (just background noise).
-    No colour check — both are brown; animation is the only reliable signal.
+    Single-frame color availability check.
+    Takes one screenshot and checks whether each spot area contains the
+    resource's distinctive flower color. Instant — no waiting required.
+    Returns list of (cx, cy) that have enough matching pixels.
     """
+    with mss.mss() as sct:
+        raw = sct.grab(sct.monitors[1])
+    img = cv2.cvtColor(np.array(raw), cv2.COLOR_BGRA2BGR)
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    h, w = hsv.shape[:2]
+
+    lower = np.array(hsv_lower, dtype=np.uint8)
+    upper = np.array(hsv_upper, dtype=np.uint8)
+    mask  = cv2.inRange(hsv, lower, upper)
+
+    available = []
+    for cx, cy in spots:
+        x1 = max(0, cx - COLOR_WINDOW);  x2 = min(w, cx + COLOR_WINDOW)
+        y1 = max(0, cy - COLOR_WINDOW);  y2 = min(h, cy + COLOR_WINDOW)
+        count = int(np.sum(mask[y1:y2, x1:x2] > 0))
+        if count >= MIN_COLOR_PIXELS:
+            available.append((cx, cy))
+            print(f"[Farm] ({cx},{cy}) {count} color px -> available")
+        else:
+            print(f"[Farm] ({cx},{cy}) {count} color px -> stump, skip")
+
+    return available
+
+
+def check_spots_available(spots, color_range=None):
+    """
+    Determine which of the pre-scouted spots have harvestable resources.
+
+    color_range=(hsv_lower, hsv_upper): use fast single-frame color check.
+      The resource's flower color is distinctive; a stump has none of it.
+    No color_range: fall back to multi-frame blink detection (e.g. Kalyptus).
+    """
+    if color_range is not None:
+        return _check_spots_by_color(spots, *color_range)
+
+    # ── blink detection fallback ──────────────────────────────────────────
     frames   = []
     interval = SPOT_BLINK_DURATION / SPOT_BLINK_FRAMES
     with mss.mss() as sct:
@@ -283,7 +322,7 @@ def check_spots_available(spots):
             if wait > 0:
                 time.sleep(wait)
 
-    h, w = frames[0].shape[:2]
+    h, w        = frames[0].shape[:2]
     total_pairs = len(frames) - 1
     available   = []
 
@@ -336,15 +375,19 @@ def _save_debug(frames, zones, pos):
     print(f"[Debug] saved {tag}.png")
 
 
-def farm_current_map(pos=None, spots=None):
+def farm_current_map(pos=None, spots=None, color_range=None):
     timing = get_timing()
 
     if spots:
         time.sleep(0.1)  # let map elements finish rendering
-        print(f"[Farm] Watching {len(spots)} spot(s) ({SPOT_BLINK_DURATION}s, {SPOT_BLINK_FRAMES} frames)...")
-        available = check_spots_available([(cx, cy) for cx, cy in spots])
+        if color_range:
+            print(f"[Farm] Color-checking {len(spots)} spot(s)...")
+        else:
+            print(f"[Farm] Watching {len(spots)} spot(s) ({SPOT_BLINK_DURATION}s, {SPOT_BLINK_FRAMES} frames)...")
+        available = check_spots_available([(cx, cy) for cx, cy in spots],
+                                          color_range=color_range)
         if not available:
-            print("[Farm] No blinking spots found — all stumps, skipping harvest.")
+            print("[Farm] No available spots — all stumps, skipping harvest.")
             return 0
         print(f"[Farm] {len(available)}/{len(spots)} spot(s) available")
         for cx, cy in available:
@@ -384,9 +427,12 @@ def _load_db_and_spots():
         for m in data["maps"]
         if m.get("spots")
     }
+    color     = data.get("spot_color")
+    color_range = (color["hsv_lower"], color["hsv_upper"]) if color else None
     scouted = len(spots_map)
-    print(f"[DB] {len(db)} maps loaded, {scouted} pre-scouted")
-    return db, spots_map
+    mode    = "color check" if color_range else "blink detection"
+    print(f"[DB] {len(db)} maps loaded, {scouted} pre-scouted ({mode})")
+    return db, spots_map, color_range
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -403,7 +449,7 @@ def _parse_start_pos():
 
 
 def main():
-    db, spots_map = _load_db_and_spots()
+    db, spots_map, color_range = _load_db_and_spots()
 
     pos = _parse_start_pos()
     if pos:
@@ -444,7 +490,7 @@ def main():
                 print(f"[Pos] {pos} (tracking) | OCR says {ocr} — watching")
                 ocr_candidate = ocr
 
-            farm_current_map(pos, spots=spots_map.get(pos))
+            farm_current_map(pos, spots=spots_map.get(pos), color_range=color_range)
 
             direction, _ = choose_next(pos, db, prev_pos, visited=visited)
             if direction is None:
