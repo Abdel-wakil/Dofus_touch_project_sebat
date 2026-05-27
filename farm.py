@@ -149,7 +149,7 @@ def capture_frames(n=N_FRAMES, interval=FRAME_INTERVAL):
     return frames
 
 
-def blink_detect(frames):
+def blink_detect(frames, diff_threshold=DIFF_THRESHOLD, min_blink_count=MIN_BLINK_COUNT):
     """
     Count how many consecutive frame pairs show a colour change at each pixel.
     Blinking trees change repeatedly at the same location (high count).
@@ -162,9 +162,9 @@ def blink_detect(frames):
         diff = np.abs(
             frames[i].astype(np.float32) - frames[i + 1].astype(np.float32)
         ).max(axis=2)
-        change_count += (diff > DIFF_THRESHOLD)
+        change_count += (diff > diff_threshold)
 
-    mask = (change_count >= MIN_BLINK_COUNT).astype(np.uint8) * 255
+    mask = (change_count >= min_blink_count).astype(np.uint8) * 255
     mask[:, _X_LIM:] = 0
     mask[_Y_LIM:, :] = 0
 
@@ -215,6 +215,53 @@ def _merge_boxes(zones):
 def _center(box):
     x1, y1, x2, y2 = box
     return (x1 + x2) // 2, (y1 + y2) // 2
+
+
+# Adaptive detection tiers: (n_frames, duration_s, diff_threshold, min_blink_count)
+# Each tier is tried in order; we stop as soon as found >= expected.
+# Lower diff_threshold and min_blink_count = more sensitive, more false-positives.
+_DETECT_TIERS = [
+    (18, 3.0, 20, 4),   # standard
+    (24, 4.0, 15, 3),   # aggressive
+    (30, 5.0, 12, 2),   # very aggressive
+]
+
+
+def detect_spots_adaptive(expected=None):
+    """
+    Run blink detection with progressively more sensitive settings until
+    the detected spot count reaches `expected` (or all tiers are exhausted).
+
+    Returns (frames, zones) from the attempt that found the most spots.
+    If `expected` is None, only tier-0 runs.
+    """
+    best_frames, best_zones = None, []
+
+    for tier, (n, duration, diff_thresh, min_pairs) in enumerate(_DETECT_TIERS):
+        interval = duration / n
+        label    = "standard" if tier == 0 else f"tier-{tier}"
+        exp_str  = f"/{expected}" if expected is not None else ""
+        print(f"[Detect] {label}: {n} frames / {duration:.0f}s  "
+              f"diff≥{diff_thresh}  min_pairs={min_pairs}")
+
+        frames = capture_frames(n=n, interval=interval)
+        zones  = blink_detect(frames, diff_threshold=diff_thresh, min_blink_count=min_pairs)
+
+        if len(zones) > len(best_zones):
+            best_frames, best_zones = frames, zones
+
+        found = len(zones)
+        if expected is None or found >= expected:
+            if expected is not None:
+                print(f"[Detect] {found}{exp_str} — OK")
+            return frames, zones
+
+        if tier < len(_DETECT_TIERS) - 1:
+            print(f"[Detect] {found}{exp_str} — retrying with stronger settings...")
+        else:
+            print(f"[Detect] {found}{exp_str} after all tiers — using best ({len(best_zones)})")
+
+    return best_frames, best_zones
 
 
 # Trees animate continuously; stumps are completely static.
