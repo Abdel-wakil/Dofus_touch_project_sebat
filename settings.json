@@ -1,6 +1,6 @@
 {
   "active_profile": "2k",
-  "active_resource": "oliviolet",
+  "active_resource": "boumu",
   "profiles": {
     "2k": {
       "resolution": [
@@ -42,7 +42,7 @@
       "coord_region": [
         0.109,
         0.148,
-        0.16,
+        0.148,
         0.18
       ],
       "farm_zone": [
@@ -104,7 +104,7 @@
     }
   },
   "timing": {
-    "harvest_wait_seconds": 5.9,
+    "harvest_wait_seconds": 5.1,
     "map_change_timeout_seconds": 3.5,
     "map_change_poll_interval": 0.2,
     "post_map_change_delay": 0.15,

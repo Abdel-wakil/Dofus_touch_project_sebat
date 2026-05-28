@@ -1,20 +1,12 @@
 {
   "resource": "Kalyptus",
   "respawn_minutes": 25,
-  "blink": {
-    "spot_win_x": 45,
-    "spot_win_y_top": 250,
-    "spot_win_y_bot": 70,
-    "spot_frames": 5,
-    "spot_interval": 0.3,
-    "blink_diff": 10,
-    "min_blink_px": 25000
-  },
+  "blink": {"spot_win_x": 45, "spot_win_y_top": 270, "spot_win_y_bot": 70, "spot_frames": 5, "spot_interval": 0.3, "blink_diff": 10, "min_blink_px": 300000},
   "maps": [
     {"x": -11, "y": 5, "count": 1, "spots": [[1554, 889]]},
     {"x": -11, "y": 6, "count": 2, "spots": [[928, 927]]},
     {"x": -11, "y": 7, "count": 2, "spots": [[1611, 1044], [637, 855]]},
-    {"x": -11, "y": 8, "count": 3, "spots": [[1779, 1069], [587, 884], [1213, 841]]},
+    {"x": -11, "y": 8, "count": 3, "spots": [[1779, 1069], [1213, 841], [577, 1093]]},
     {"x": -11, "y": 9, "count": 2, "spots": [[1609, 985], [756, 727]]},
     {"x": -11, "y": 10, "count": 2, "spots": [[1728, 1099], [1614, 469]]},
     {"x": -11, "y": 11, "count": 2, "spots": [[1841, 529], [702, 1032]]},

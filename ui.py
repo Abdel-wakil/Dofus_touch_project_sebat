@@ -47,6 +47,23 @@ def _load_settings():
         return json.load(f)
 
 
+def _write_resource_json(path, data):
+    """Write resource JSON: all top-level keys preserved, one compact line per map."""
+    maps  = data["maps"]
+    lines = ["{"]
+    for key, val in data.items():
+        if key == "maps":
+            continue
+        lines.append(f"  {json.dumps(key)}: {json.dumps(val, ensure_ascii=False)},")
+    lines.append('  "maps": [')
+    for i, m in enumerate(maps):
+        comma = "," if i < len(maps) - 1 else ""
+        lines.append(f"    {json.dumps(m, ensure_ascii=False)}{comma}")
+    lines += ["  ]", "}"]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def _save_profile(name):
     s = _load_settings()
     s["active_profile"] = name
@@ -233,7 +250,10 @@ class BotUI:
         ttk.Button(row1, text="⟳  Reset spots", command=self._reset_spots, width=14
                    ).pack(side="left", padx=6)
 
-        ttk.Button(row1, text="⊕  Scan map", command=self._scan_current_map, width=14
+        ttk.Button(row1, text="＋  Save map", command=self._save_map_to_json, width=14
+                   ).pack(side="left", padx=6)
+
+        ttk.Button(row2, text="⊕  Scan map", command=self._scan_current_map, width=14
                    ).pack(side="left", padx=6)
 
         ttk.Button(row2, text="✓  Check spots", command=self._check_current_spots, width=14
@@ -799,6 +819,38 @@ class BotUI:
         self._log_line(f"[Config] Resource -> {self._resource.get()}")
         self._refresh_progress()
 
+    def _save_map_to_json(self):
+        """Add the current map position to the active resource JSON if not already present."""
+        sx, sy = self._start_x.get().strip(), self._start_y.get().strip()
+        if sx and sy:
+            try:
+                pos = (int(sx), int(sy))
+            except ValueError:
+                self._log_line("[SaveMap] Invalid X/Y values.", "err")
+                return
+        elif self._current_map_xy:
+            pos = self._current_map_xy
+        else:
+            self._log_line("[SaveMap] No position known — enter X/Y or use OCR first.", "err")
+            return
+
+        path = _resource_path(self._resource.get())
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            for m in data["maps"]:
+                if m["x"] == pos[0] and m["y"] == pos[1]:
+                    self._log_line(
+                        f"[SaveMap] ({pos[0]}, {pos[1]}) already in {path.name}.", "nav")
+                    return
+            data["maps"].append({"x": pos[0], "y": pos[1], "count": 0})
+            _write_resource_json(path, data)
+            self._log_line(
+                f"[SaveMap] Added ({pos[0]}, {pos[1]}) to {path.name}.", "scout")
+            self._refresh_progress()
+        except Exception as e:
+            self._log_line(f"[SaveMap] Error: {e}", "err")
+
     def _reset_spots(self):
         path = _resource_path(self._resource.get())
         try:
@@ -806,19 +858,7 @@ class BotUI:
                 data = json.load(f)
             for m in data["maps"]:
                 m.pop("spots", None)
-            maps = data["maps"]
-            lines = [
-                "{",
-                f'  "resource": {json.dumps(data["resource"])},',
-                f'  "respawn_minutes": {data["respawn_minutes"]},',
-                '  "maps": [',
-            ]
-            for i, m in enumerate(maps):
-                comma = "," if i < len(maps) - 1 else ""
-                lines.append(f"    {json.dumps(m, ensure_ascii=False)}{comma}")
-            lines += ["  ]", "}"]
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines) + "\n")
+            _write_resource_json(path, data)
             self._log_line(f"[UI] Spots cleared from {path.name}")
             self._refresh_progress()
         except Exception as e:
@@ -983,8 +1023,7 @@ class BotUI:
                         return
                     m["spots"] = spots
                     break
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            _write_resource_json(path, data)
             self._selected_spot = None
             self._log_line(f"[UI] Spot ({sx}, {sy}) removed from map ({mx}, {my})", "scout")
             self._refresh_progress()
@@ -1035,8 +1074,7 @@ class BotUI:
             else:
                 self._log_line(f"[UI] Map ({mx}, {my}) not in {path.name}", "err")
                 return
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            _write_resource_json(path, data)
             self._log_line(
                 f"[UI] Spot added at ({screen_x}, {screen_y}) on map ({mx}, {my})", "scout"
             )

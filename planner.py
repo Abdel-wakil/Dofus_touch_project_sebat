@@ -79,18 +79,22 @@ def choose_next(pos, db, prev_pos=None, visited=None):
     for _d, nxt in all_moves:
         score = 1.0
 
-        # Large bonus for going somewhere new
+        # Very strong pull toward unvisited maps
         if nxt not in visited:
-            score += 20.0
+            score += 50.0
 
         # Reward moving toward the cluster of unvisited maps
         if ucx is not None:
             dist_next = math.sqrt((nxt[0] - ucx) ** 2 + (nxt[1] - ucy) ** 2)
-            score += max(0.0, dist_now - dist_next) * 3.0
+            score += max(0.0, dist_now - dist_next) * 5.0
 
-        # Heavy backtrack penalty — still possible as a last resort
+        # Crush any already-visited map (still reachable as last resort)
+        if nxt in visited:
+            score *= 0.02
+
+        # Extra crush for the immediately previous position
         if nxt == prev_pos:
-            score *= 0.05
+            score *= 0.1
 
         scores.append(max(score, 0.01))
 

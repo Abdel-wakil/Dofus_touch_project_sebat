@@ -1,14 +1,9 @@
 {
   "resource": "Bumbu",
   "respawn_minutes": 60,
-  "blink": {
-    "spot_win_x": 45,
-    "spot_win_y_top": 140,
-    "spot_win_y_bot": 70,
-    "spot_frames": 5,
-    "spot_interval": 0.3,
-    "blink_diff": 10,
-    "min_blink_px": 2500
-  },
-  "maps": []
+  "blink": {"spot_win_x": 45, "spot_win_y_top": 140, "spot_win_y_bot": 70, "spot_frames": 5, "spot_interval": 0.3, "blink_diff": 10, "min_blink_px": 2500},
+  "maps": [
+    {"x": 0, "y": 7, "count": 0},
+    {"x": -8, "y": -27, "count": 0, "spots": [[464, 400], [862, 223], [1671, 1211], [1588, 1008], [916, 949], [730, 700], [852, 1267], [935, 1179], [705, 363], [697, 437], [478, 539]]}
+  ]
 }

@@ -157,16 +157,26 @@ def navigate(direction, current_pos=None, max_retries=3):
 
 _regions_cache = get_screen_regions()
 
-# Defaults — overridden per-resource via the "blink" key in each resource JSON.
+# Fallback values — only used when a resource JSON has no "blink" section.
 DEFAULT_BLINK = {
-    "spot_win_x":     45,   # horizontal pixel radius around each spot center
-    "spot_win_y_top": 140,  # upward extension from spot center
-    "spot_win_y_bot": 70,   # downward extension from spot center
-    "spot_frames":    5,    # screenshots to take
-    "spot_interval":  0.3,  # seconds between screenshots
-    "blink_diff":     10,   # per-pixel brightness change threshold
-    "min_blink_px":   2500, # pixel-sum threshold → plant is available
+    "spot_win_x":     45,
+    "spot_win_y_top": 140,
+    "spot_win_y_bot": 70,
+    "spot_frames":    5,
+    "spot_interval":  0.3,
+    "blink_diff":     10,
+    "min_blink_px":   2500,
 }
+
+
+def _get_blink_cfg():
+    """Load blink config from the active resource JSON (falls back to DEFAULT_BLINK)."""
+    try:
+        with open(get_resource_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return {**DEFAULT_BLINK, **data.get("blink", {})}
+    except Exception:
+        return dict(DEFAULT_BLINK)
 
 
 # ── Discovery helpers (used by scout.py / scan_map.py) ───────────────────────
@@ -206,7 +216,7 @@ def _center(box):
 
 def capture_frames(blink_cfg=None):
     """Capture a burst of frames for whole-map blink discovery (scout / scan_map)."""
-    cfg    = {**DEFAULT_BLINK, **(blink_cfg or {})}
+    cfg    = blink_cfg if blink_cfg is not None else _get_blink_cfg()
     fz     = _regions_cache["farm_zone"]
     fx1, fy1, fx2, fy2 = fz
     hold_x = (fx1 + fx2) // 2
@@ -233,7 +243,7 @@ def capture_frames(blink_cfg=None):
 def blink_detect(frames, blink_cfg=None):
     """Find blinking resource blobs; returns list of (x1,y1,x2,y2) boxes."""
     from config.loader import get_detection_config
-    cfg      = {**DEFAULT_BLINK, **(blink_cfg or {})}
+    cfg      = blink_cfg if blink_cfg is not None else _get_blink_cfg()
     det      = get_detection_config()
     min_area = det.get("min_blob_area", 80)
     max_area = det.get("max_blob_area", 8000)
@@ -260,7 +270,7 @@ def check_spots_available(spots, blink_cfg=None, return_mask=False):
     then count pixels that change between consecutive grayscale screenshots.
     Fire-animated plant → many blinking pixels.  Static stump → near zero.
     """
-    cfg            = {**DEFAULT_BLINK, **(blink_cfg or {})}
+    cfg            = blink_cfg if blink_cfg is not None else _get_blink_cfg()
     spot_win_x     = cfg["spot_win_x"]
     spot_win_y_top = cfg["spot_win_y_top"]
     spot_win_y_bot = cfg["spot_win_y_bot"]
